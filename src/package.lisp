@@ -43,6 +43,11 @@
    ;; Compliance
    #:tag-subject
    #:compliance-footer-text
+   ;; MTA (used by mlisp-admin approve and distrib)
+   #:sendmail
+   #:distribute-message
+   #:rfc2369-headers
+   #:compliance-footer-text
    ;; Audit log (used by mlisp-admin)
    #:audit-append
    ;; Metrics
@@ -61,6 +66,31 @@
    #:list-request-address
    #:list-auto-subscribe-p
    #:list-max-bounces
+   ;; Daemon discrimination
+   #:daemon-message-p
+   #:daemon-drop-reason
+   ;; Dedup
+   #:duplicate-p
+   #:record-dedup
+   #:message-id
+   #:dedup-entries
+   #:clear-dedup-cache
+   ;; Maildir
+   #:maildir-write
+   #:maybe-archive-to-maildir
+   ;; Moderation queue
+   #:list-moderated-p
+   #:hold-message
+   #:held-queue
+   #:release-held
+   #:purge-held
+   #:list-digest-mode-p
+   #:buffer-for-digest
+   #:flush-digest
+   ;; Exploder
+   #:list-exploder-p
+   #:exploder-members
+   #:distribute-exploder
    ;; Process mode
    #:*process-mode*
    #:*metrics-path-override*
