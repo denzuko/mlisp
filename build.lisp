@@ -1,34 +1,34 @@
-;;;; build.lisp — Compile mlisp and mlisp-admin into compressed native binaries
+;;;; build.lisp — Compile mlisp into a compressed native binary
 ;;;;
 ;;;; Usage:  sbcl --load build.lisp
-;;;; Output: bin/mlisp, bin/mlisp-admin
+;;;; Output: bin/mlisp
 
-(let ((here (directory-namestring (truename *load-pathname*))))
+(require :asdf)
 
-  (flet ((load-system (name)
-           (pushnew (truename here) asdf:*central-registry* :test #'equal)
-           (handler-case
-               (progn
-                 (format t "~&[build] Loading ~A via ASDF~%" name)
-                 (asdf:load-system name))
-             (error (e)
-               (error "ASDF load of ~A failed: ~A" name e))))
+(let* ((here  (directory-namestring (truename *load-pathname*)))
+       (ql-setup (merge-pathnames "quicklisp/setup.lisp"
+                                  (user-homedir-pathname))))
 
-         (build-binary (entry-sym output-rel)
-           (let ((out (merge-pathnames output-rel here)))
-             (ensure-directories-exist out)
-             (format t "~&[build] Compiling to ~A~%" out)
-             (funcall (find-symbol "SAVE-LISP-AND-DIE" :sb-ext)
-                      out
-                      :toplevel          entry-sym
-                      :executable        t
-                      :compression       t
-                      :save-runtime-options t))))
+  ;; Load Quicklisp if available
+  (when (probe-file ql-setup)
+    (load ql-setup))
 
-    ;; Build mlisp
-    (load-system :mlisp)
-    (build-binary (find-symbol "MAIN" :mlisp) "bin/mlisp")
+  (pushnew (truename here) asdf:*central-registry* :test #'equal)
 
-    ;; Re-load image and build mlisp-admin separately
-    ;; (save-lisp-and-die exits; run as two separate sbcl invocations via Makefile)
-    ))
+  (handler-case
+      (progn
+        (format t "~&[build] Loading mlisp via ASDF~%")
+        (asdf:load-system :mlisp))
+    (error (e)
+      (format *error-output* "[build] FATAL: ASDF load of mlisp failed: ~A~%" e)
+      (sb-ext:exit :code 1)))
+
+  (let ((out (merge-pathnames "bin/mlisp" here)))
+    (ensure-directories-exist out)
+    (format t "~&[build] Compiling to ~A~%" out)
+    (funcall (find-symbol "SAVE-LISP-AND-DIE" :sb-ext)
+             out
+             :toplevel          (find-symbol "MAIN" :mlisp)
+             :executable        t
+             :compression       t
+             :save-runtime-options t)))

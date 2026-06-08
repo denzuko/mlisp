@@ -15,7 +15,9 @@
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Based on FIPS 180-4. Operates on byte vectors.
 
-(defconstant +sha256-k+
+;;; SHA-256 round constants (FIPS 180-4 §4.2.2)
+;;; defparameter avoids defconstant non-EQL reload errors for array literals
+(defparameter +sha256-k+
   #(#x428a2f98 #x71374491 #xb5c0fbcf #xe9b5dba5
     #x3956c25b #x59f111f1 #x923f82a4 #xab1c5ed5
     #xd807aa98 #x12835b01 #x243185be #x550c7dc3
