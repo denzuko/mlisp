@@ -1,16 +1,16 @@
 ;;;; mlisp.asd — ASDF system definition for mlisp
 ;;;;
-;;;; Load:   (asdf:load-system :mlisp)
-;;;; Or:     (ql:quickload :mlisp)   ; once registered in a dist
+;;;; Load:    (asdf:load-system :mlisp)
+;;;; Test:    (asdf:test-system :mlisp)
+;;;; Build:   sbcl --load build.lisp        (uses :compression t)
+;;;;   -or-   (asdf:make :mlisp)            (no compression, 45 MB)
 
 (defsystem "mlisp"
   :description "Minimalist mailing list manager — smartlist replacement"
   :long-description
-  "mlisp is a compiled, standalone Common Lisp mailing list manager that
-   replaces the legacy smartlist suite.  It processes raw RFC 2822 email
-   from stdin, maintains an S-expression state database, enforces
-   CAN-SPAM/GDPR/CASL compliance on every outbound message, and compiles
-   to a native binary via sb-ext:save-lisp-and-die."
+  "mlisp processes raw RFC 2822 email from stdin, maintains an S-expression
+   state database, enforces CAN-SPAM/GDPR/CASL compliance on every outbound
+   message, and compiles to a native SBCL binary."
   :author "Dwight Spencer <denzuko@dapla.net>"
   :maintainer "Dwight Spencer <denzuko@dapla.net>"
   :license "BSD-2-Clause"
@@ -19,9 +19,12 @@
   :bug-tracker "https://github.com/denzuko/mlisp/issues"
   :source-control (:git "https://github.com/denzuko/mlisp.git")
 
-  ;; Runtime: pure SBCL, no external Quicklisp deps.
-  ;; sb-ext is part of SBCL itself; listed explicitly so ASDF
-  ;; knows this is SBCL-only.
+  ;; program-op wiring: (asdf:make :mlisp) produces an uncompressed binary.
+  ;; For the compressed 11 MB production binary use: sbcl --load build.lisp
+  :build-operation "program-op"
+  :build-pathname  "bin/mlisp"
+  :entry-point     "mlisp:main"
+
   :depends-on ()
 
   :components
