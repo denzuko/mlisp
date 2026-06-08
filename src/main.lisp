@@ -22,6 +22,16 @@
         (record-metric list-id :loop-drop)
         (return-from process-message 0))
 
+      ;; 1b. Daemon / auto-responder discrimination
+      (when (daemon-message-p headers)
+        (let ((reason (daemon-drop-reason headers)))
+          (format *error-output* "mlisp: daemon message (~A) dropped on ~A~%"
+                  reason list-id)
+          (audit-append (list :event :daemon-drop :list list-id
+                              :reason reason :from from-addr))
+          (record-metric list-id :daemon-drop))
+        (return-from process-message 0))
+
       ;; 2. Find list
       (unless (find-list list-id)
         (format *error-output* "mlisp: unknown list ~A~%" list-id)
@@ -47,19 +57,50 @@
                      list-id)
              (record-metric list-id :request-reject)
              (return-from process-message 1))
-           ;; 5. Auto-subscribe on first post (if enabled)
+           ;; 5. Exploder bypass: relay lists don't check per-list subscription
+           (when (list-exploder-p list-id)
+             (distribute-exploder list-id from-addr headers body-lines)
+             (audit-append (list :event :post-distributed :list list-id :from from-addr))
+             (record-metric list-id :distributed)
+             (return-from process-message 0))
+           ;; 6. Auto-subscribe on first post (if enabled)
            (when (and (not (subscriber-p list-id from-addr))
                       (list-auto-subscribe-p list-id))
              (handle-subscribe list-id from-addr)
              (audit-append (list :event :auto-subscribed
                                  :list list-id :address from-addr)))
-           ;; 6. Subscriber authorization
+           ;; 7. Subscriber authorization
            (if (subscriber-p list-id from-addr)
-               (progn
-                 (distribute-message list-id from-addr headers body-lines)
-                 (audit-append (list :event :post-distributed
-                                     :list list-id :from from-addr))
-                 (record-metric list-id :distributed)
+               (let* ((msg-id (message-id headers body-lines)))
+                 ;; 7. Dedup check
+                 (when (duplicate-p list-id msg-id)
+                   (audit-append (list :event :duplicate :list list-id
+                                       :message-id msg-id))
+                   (record-metric list-id :duplicate)
+                   (return-from process-message 0))
+                 (record-dedup list-id msg-id)
+                 ;; 8. Exploder dispatch
+                 (cond
+                   ((list-exploder-p list-id)
+                    (distribute-exploder list-id from-addr headers body-lines))
+                   ;; 9. Moderation hold queue
+                   ((list-moderated-p list-id)
+                    (let ((seq (hold-message list-id headers body-lines)))
+                      (audit-append (list :event :held :list list-id
+                                          :seq seq :from from-addr))
+                      (record-metric list-id :held)))
+                   ;; 10. Digest buffer
+                   ((list-digest-mode-p list-id)
+                    (buffer-for-digest list-id headers body-lines)
+                    (audit-append (list :event :buffered-for-digest
+                                        :list list-id :from from-addr)))
+                   ;; 11. Normal distribution
+                   (t
+                    (maybe-archive-to-maildir list-id headers body-lines)
+                    (distribute-message list-id from-addr headers body-lines)
+                    (audit-append (list :event :post-distributed
+                                        :list list-id :from from-addr))
+                    (record-metric list-id :distributed)))
                  0)
                (progn
                  (handle-reject list-id from-addr)
