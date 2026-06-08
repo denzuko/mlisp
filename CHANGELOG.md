@@ -49,6 +49,12 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- `etc/procmailrc.sample` — canonical sample procmail recipe file with one
+  block per configured list; use as reference or with install-procmail
+- `mlisp-admin install-procmail [--list <id>] [--dry-run]` — appends procmail
+  recipes to `~/.procmailrc` (creates file if absent); idempotent (skips
+  lists already present); `--list` filters to one list; `--dry-run` prints
+  without writing; uses `# mlisp: <id>` comment as idempotency marker
 - XDG Base Dir Spec path resolution for state and templates
   (`$XDG_CONFIG_HOME/mlisp/`, `~/.config/mlisp/`, binary dir fallback)
 - `--home <dir>` CLI flag on both `mlisp` and `mlisp-admin` (highest priority)

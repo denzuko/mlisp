@@ -262,6 +262,117 @@
 ;;; Admin entry point
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Subcommand: install-procmail
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(defun procmail-recipe (list-id drop-address mlisp-bin home-dir)
+  "Return a procmail recipe string for LIST-ID.
+   The comment line '# mlisp: <id>' is the idempotency marker."
+  (format nil
+"# mlisp: ~A
+:0
+* ^^TO_~A
+| ~A --home ~A ~A
+"
+          list-id drop-address mlisp-bin home-dir list-id))
+
+(defun procmailrc-has-list-p (path list-id)
+  "Return T if PATH already contains a mlisp recipe for LIST-ID."
+  (when (probe-file path)
+    (with-open-file (s path :direction :input)
+      (let ((marker (format nil "# mlisp: ~A" list-id)))
+        (loop for line = (read-line s nil nil)
+              while line
+              when (string= line marker)
+              return t)))))
+
+(defun cmd-install-procmail (args)
+  "Append procmail recipes for configured lists to ~~/.procmailrc.
+   Args: [--dry-run] [--list <id>] [--help]"
+  (let ((dry-run nil)
+        (filter-list nil)
+        (tail args))
+
+    ;; Parse subcommand flags
+    (loop while tail do
+      (let ((a (car tail)))
+        (cond
+          ((or (string= a "--help") (string= a "-h"))
+           (format t
+"Usage: mlisp-admin install-procmail [--list <id>] [--dry-run]
+
+  --list <id>    install recipe for one list only
+  --dry-run      print what would be written; do not modify ~~/.procmailrc
+  --help         show this help
+")
+           (return-from cmd-install-procmail 0))
+          ((string= a "--dry-run")
+           (setf dry-run t)
+           (setf tail (cdr tail)))
+          ((string= a "--list")
+           (if (cdr tail)
+               (progn (setf filter-list (string-downcase (cadr tail)))
+                      (setf tail (cddr tail)))
+               (progn (format *error-output*
+                              "mlisp-admin: --list requires an argument~%")
+                      (return-from cmd-install-procmail 1))))
+          (t (setf tail (cdr tail))))))
+
+    (mlisp:load-state)
+
+    ;; Validate --list target if given
+    (when (and filter-list (null (mlisp:find-list filter-list)))
+      (format *error-output* "mlisp-admin: unknown list ~A~%" filter-list)
+      (return-from cmd-install-procmail 1))
+
+    ;; Determine paths
+    (let* ((home-dir   (mlisp:mlisp-home))
+           (mlisp-bin  (or (uiop:getenv "MLISP_BIN")
+                           (namestring
+                            (truename sb-ext:*runtime-pathname*))
+                           "/usr/local/bin/mlisp"))
+           ;; Replace mlisp-admin path with mlisp path
+           (mlisp-bin  (let ((b (pathname mlisp-bin)))
+                         (namestring
+                          (make-pathname
+                           :directory (pathname-directory b)
+                           :name "mlisp"
+                           :type (pathname-type b)))))
+           (procmailrc (merge-pathnames ".procmailrc"
+                                        (uiop:ensure-directory-pathname
+                                         (sb-ext:posix-getenv "HOME"))))
+           (lists      (if filter-list
+                           (list (mlisp:find-list filter-list))
+                           (getf mlisp:*state* :lists))))
+
+      (if dry-run
+          (progn
+            (format t "# Would append to ~A:~%~%" procmailrc)
+            (dolist (lst lists)
+              (let* ((id   (getf lst :id))
+                     (drop (getf lst :drop-address)))
+                (if (procmailrc-has-list-p procmailrc id)
+                    (format t "# SKIP (already present): ~A~%~%" id)
+                    (format t "~A" (procmail-recipe id drop mlisp-bin
+                                                    home-dir))))))
+          (progn
+            (dolist (lst lists)
+              (let* ((id   (getf lst :id))
+                     (drop (getf lst :drop-address)))
+                (if (procmailrc-has-list-p procmailrc id)
+                    (format t "Skipped ~A (already in ~A)~%" id procmailrc)
+                    (progn
+                      (with-open-file (s procmailrc
+                                         :direction :output
+                                         :if-exists :append
+                                         :if-does-not-exist :create)
+                        (write-string
+                         (procmail-recipe id drop mlisp-bin home-dir) s))
+                      (format t "Added ~A -> ~A~%" id procmailrc))))))))
+    0))
+
 (defun usage ()
   (format t
 "Usage: mlisp-admin [--home <dir>] <subcommand> [args...]
@@ -278,6 +389,7 @@ Subcommands:
   list-subs <list-id>              print subscribers for a list
   add-sub  <list-id> <address>     add subscriber (consent: admin-add)
   rm-sub   <list-id> <address>     remove subscriber (GDPR erasure + audit)
+  install-procmail [--list <id>] [--dry-run]  append procmail recipes to ~~/.procmailrc
 
 Config resolution order:
   --home > $MLISP_HOME > $XDG_CONFIG_HOME/mlisp/ > ~~/.config/mlisp/ > binary dir
@@ -315,6 +427,8 @@ Config resolution order:
                     ((string= subcmd "rm-sub")       (cmd-rm-sub subcmd-args))
                     ((string= subcmd "add-list")     (cmd-add-list subcmd-args))
                     ((string= subcmd "rm-list")      (cmd-rm-list subcmd-args))
+                    ((string= subcmd "install-procmail")
+                                              (cmd-install-procmail subcmd-args))
                     (t
                      (format *error-output*
                              "mlisp-admin: unknown subcommand ~S~%" subcmd)

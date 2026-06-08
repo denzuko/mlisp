@@ -1,0 +1,21 @@
+# mlisp procmail recipes
+# Generated sample — copy or append to ~/.procmailrc
+#
+# Replace /usr/local/bin/mlisp and /home/user/.config/mlisp with your paths.
+# To install automatically:
+#   mlisp-admin install-procmail [--list <id>] [--dry-run]
+
+# mlisp: discuss
+:0
+* ^TO_denzuko+mlist-discuss@panix.com
+| /usr/local/bin/mlisp --home /home/user/.config/mlisp discuss
+
+# mlisp: announce
+:0
+* ^TO_denzuko+mlist-announce@panix.com
+| /usr/local/bin/mlisp --home /home/user/.config/mlisp announce
+
+# mlisp: devel
+:0
+* ^TO_denzuko+mlist-devel@panix.com
+| /usr/local/bin/mlisp --home /home/user/.config/mlisp devel
