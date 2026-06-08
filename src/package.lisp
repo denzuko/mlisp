@@ -66,6 +66,18 @@
    #:list-request-address
    #:list-auto-subscribe-p
    #:list-max-bounces
+   ;; GPG and hash-at-rest
+   #:sha256-hex
+   #:address-hash
+   #:list-hash-contacts-p
+   #:subscriber-p-hashed
+   #:add-subscriber-hashed
+   #:remove-subscriber-hashed
+   #:gpg-signed-p
+   #:gpg-encrypted-p
+   #:list-require-signed-p
+   #:list-gpg-key-id
+   #:gpg-verify
    ;; Daemon discrimination
    #:daemon-message-p
    #:daemon-drop-reason

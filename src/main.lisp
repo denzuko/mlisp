@@ -64,13 +64,26 @@
              (record-metric list-id :distributed)
              (return-from process-message 0))
            ;; 6. Auto-subscribe on first post (if enabled)
-           (when (and (not (subscriber-p list-id from-addr))
-                      (list-auto-subscribe-p list-id))
-             (handle-subscribe list-id from-addr)
-             (audit-append (list :event :auto-subscribed
-                                 :list list-id :address from-addr)))
-           ;; 7. Subscriber authorization
-           (if (subscriber-p list-id from-addr)
+           (let ((sub-check (if (list-hash-contacts-p list-id)
+                                #'subscriber-p-hashed
+                                #'subscriber-p)))
+             (when (and (not (funcall sub-check list-id from-addr))
+                        (list-auto-subscribe-p list-id))
+               (handle-subscribe list-id from-addr)
+               (audit-append (list :event :auto-subscribed
+                                   :list list-id :address from-addr))))
+           ;; 7. GPG signature check
+           (when (list-require-signed-p list-id)
+             (unless (gpg-signed-p headers body-lines)
+               (audit-append (list :event :gpg-unsigned-rejected
+                                   :list list-id :from from-addr))
+               (record-metric list-id :gpg-rejected)
+               (return-from process-message 1)))
+           ;; 8. Subscriber authorization
+           (if (funcall (if (list-hash-contacts-p list-id)
+                             #'subscriber-p-hashed
+                             #'subscriber-p)
+                           list-id from-addr)
                (let* ((msg-id (message-id headers body-lines)))
                  ;; 7. Dedup check
                  (when (duplicate-p list-id msg-id)
