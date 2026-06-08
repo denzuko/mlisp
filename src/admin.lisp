@@ -409,11 +409,17 @@
         (format *error-output* "mlisp-admin: unknown list ~A~%" list-id)
         (return-from cmd-set-option 1))
       (let* ((kw  (intern (string-upcase key) :keyword))
-             (val (cond ((string-equal value "true")  t)
-                        ((string-equal value "false") nil)
+             (val (cond ((string-equal value "true")   t)
+                        ((string-equal value "false")  nil)
+                        ((string-equal key "delivery-mode")
+                         (intern (string-upcase value) :keyword))
                         ((ignore-errors (parse-integer value)))
                         (t value))))
-        (setf (getf lst kw) val)
+        ;; setf (getf lst kw) only mutates existing keys.
+        ;; For new keys we must nconc onto the plist in *state*.
+        (if (member kw lst)
+            (setf (getf lst kw) val)
+            (nconc lst (list kw val)))
         (mlisp:save-state)
         (format t "Set ~A :~A = ~S~%" list-id (string-downcase key) val)
         0))))
@@ -468,6 +474,173 @@
   (mlisp:write-metrics-file)
   (format t "Metrics written to ~A~%" (mlisp:metrics-path))
   0)
+
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Subcommand: show-dedup / clear-dedup
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(defun cmd-show-dedup (args)
+  (let ((list-id (first args)))
+    (unless list-id
+      (format *error-output* "mlisp-admin: show-dedup requires <list-id>~%")
+      (return-from cmd-show-dedup 1))
+    (mlisp:load-state)
+    (let ((entries (mlisp:dedup-entries list-id)))
+      (if (null entries)
+          (format t "No dedup entries for ~A~%" list-id)
+          (dolist (e entries)
+            (format t "~A  seen: ~A~%"
+                    (getf e :id)
+                    (getf e :seen-at))))
+      0)))
+
+(defun cmd-clear-dedup (args)
+  (let ((list-id (first args)))
+    (unless list-id
+      (format *error-output* "mlisp-admin: clear-dedup requires <list-id>~%")
+      (return-from cmd-clear-dedup 1))
+    (mlisp:load-state)
+    (mlisp:clear-dedup-cache list-id)
+    (format t "Cleared dedup cache for ~A~%" list-id)
+    0))
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Subcommand: hold-queue / approve / reject
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(defun cmd-hold-queue (args)
+  (let ((list-id (first args)))
+    (unless list-id
+      (format *error-output* "mlisp-admin: hold-queue requires <list-id>~%")
+      (return-from cmd-hold-queue 1))
+    (mlisp:load-state)
+    (let ((queue (mlisp:held-queue list-id)))
+      (if (null queue)
+          (format t "No held messages for ~A~%" list-id)
+          (dolist (e queue)
+            (format t "~A  ~A  from: ~A  subj: ~A~%"
+                    (getf e :seq)
+                    (getf e :received)
+                    (or (getf e :from) "")
+                    (or (getf e :subject) ""))))
+      0)))
+
+(defun cmd-approve (args)
+  (destructuring-bind (&optional list-id seq-str &rest _) args
+    (declare (ignore _))
+    (unless (and list-id seq-str)
+      (format *error-output* "mlisp-admin: approve requires <list-id> <seq>~%")
+      (return-from cmd-approve 1))
+    (mlisp:load-state)
+    (let* ((seq   (parse-integer seq-str))
+           (entry (mlisp:release-held list-id seq)))
+      (unless entry
+        (format *error-output* "mlisp-admin: no held message ~A on ~A~%" seq list-id)
+        (return-from cmd-approve 1))
+      ;; Distribute the held message
+      (let ((hdrs  (getf entry :headers))
+            (body  (getf entry :body))
+            (from  (getf entry :from)))
+        (mlisp:maybe-archive-to-maildir list-id hdrs body)
+        (mlisp:distribute-message list-id from hdrs body)
+        (mlisp:audit-append (list :event :approved :list list-id :seq seq))
+        (format t "Approved and distributed message ~A on ~A~%" seq list-id)
+        0))))
+
+(defun cmd-reject-held (args)
+  (destructuring-bind (&optional list-id seq-str &rest _) args
+    (declare (ignore _))
+    (unless (and list-id seq-str)
+      (format *error-output* "mlisp-admin: reject requires <list-id> <seq>~%")
+      (return-from cmd-reject-held 1))
+    (mlisp:load-state)
+    (let* ((seq   (parse-integer seq-str))
+           (entry (mlisp:release-held list-id seq)))
+      (unless entry
+        (format *error-output* "mlisp-admin: no held message ~A on ~A~%" seq list-id)
+        (return-from cmd-reject-held 1))
+      (mlisp:audit-append (list :event :rejected-held :list list-id :seq seq))
+      ;; Send rejection notice to original sender
+      (let ((from (getf entry :from)))
+        (when from
+          (mlisp:sendmail (list (mlisp:extract-address from))
+                          (format nil "Your submission to ~A was not approved.~%" list-id)
+                          :extra-headers (list (cons "Subject"
+                                                     (format nil "Submission rejected: ~A" list-id))
+                                               (cons "From" (mlisp:list-drop-address list-id))))))
+      (format t "Rejected message ~A on ~A~%" seq list-id)
+      0)))
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Subcommand: add-exploder
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(defun cmd-add-exploder (args)
+  (destructuring-bind (&optional id &rest members) args
+    (unless (and id members)
+      (format *error-output* "mlisp-admin: add-exploder requires <id> <list-id> ...~%")
+      (return-from cmd-add-exploder 1))
+    (mlisp:load-state)
+    (when (mlisp:find-list id)
+      (format *error-output* "mlisp-admin: list ~A already exists~%" id)
+      (return-from cmd-add-exploder 1))
+    (setf (getf mlisp:*state* :lists)
+          (append (getf mlisp:*state* :lists)
+                  (list (list :id id
+                              :type :exploder
+                              :drop-address (format nil "mlisp-exploder-~A@localhost" id)
+                              :request-address (format nil "mlisp-exploder-~A-request@localhost" id)
+                              :description (format nil "Exploder: ~{~A~^, ~}" members)
+                              :member-lists members
+                              :subscribers '()))))
+    (mlisp:save-state)
+    (format t "Created exploder ~A -> ~{~A~^, ~}~%" id members)
+    0))
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Subcommand: flush-digest
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(defun cmd-flush-digest (args)
+  (let ((list-id (first args)))
+    (unless list-id
+      (format *error-output* "mlisp-admin: flush-digest requires <list-id>~%")
+      (return-from cmd-flush-digest 1))
+    (mlisp:load-state)
+    (let ((n (mlisp:flush-digest list-id)))
+      (if (= n 0)
+          (format t "Nothing to flush for ~A~%" list-id)
+          (format t "Flushed ~A articles for ~A~%" n list-id))
+      0)))
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Subcommand: add-distrib
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(defun cmd-add-distrib (args)
+  (destructuring-bind (&optional id path &rest _) args
+    (declare (ignore _))
+    (unless (and id path)
+      (format *error-output* "mlisp-admin: add-distrib requires <id> <path>~%")
+      (return-from cmd-add-distrib 1))
+    (mlisp:load-state)
+    (when (mlisp:find-list id)
+      (format *error-output* "mlisp-admin: list ~A already exists~%" id)
+      (return-from cmd-add-distrib 1))
+    (setf (getf mlisp:*state* :lists)
+          (append (getf mlisp:*state* :lists)
+                  (list (list :id id
+                              :type :distrib
+                              :drop-address (format nil "mlisp-distrib-~A@localhost" id)
+                              :request-address (format nil "mlisp-distrib-~A-request@localhost" id)
+                              :description (format nil "Distribution channel: ~A" id)
+                              :distrib-path path
+                              :max-file-size-kb 512
+                              :subscribers '()))))
+    (mlisp:save-state)
+    (format t "Created distrib list ~A -> ~A~%" id path)
+    0))
 
 (defun usage ()
   (format t
@@ -530,6 +703,14 @@ Config resolution order:
                     ((string= subcmd "show-bounces")   (cmd-show-bounces subcmd-args))
                     ((string= subcmd "clear-bounces")  (cmd-clear-bounces subcmd-args))
                     ((string= subcmd "export-metrics") (cmd-export-metrics))
+                    ((string= subcmd "show-dedup")      (cmd-show-dedup subcmd-args))
+                    ((string= subcmd "clear-dedup")     (cmd-clear-dedup subcmd-args))
+                    ((string= subcmd "hold-queue")      (cmd-hold-queue subcmd-args))
+                    ((string= subcmd "approve")         (cmd-approve subcmd-args))
+                    ((string= subcmd "reject")          (cmd-reject-held subcmd-args))
+                    ((string= subcmd "add-exploder")    (cmd-add-exploder subcmd-args))
+                    ((string= subcmd "flush-digest")    (cmd-flush-digest subcmd-args))
+                    ((string= subcmd "add-distrib")     (cmd-add-distrib subcmd-args))
                     (t
                      (format *error-output*
                              "mlisp-admin: unknown subcommand ~S~%" subcmd)

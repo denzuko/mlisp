@@ -40,6 +40,11 @@
      (:file "mta")
      (:file "metrics")
      (:file "bounce")
+     (:file "daemon")
+     (:file "dedup")
+     (:file "maildir")
+     (:file "modqueue")
+     (:file "exploder")
      (:file "main"))))
 
   :in-order-to ((test-op (test-op "mlisp-test"))))
