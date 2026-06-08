@@ -21,3 +21,4 @@ quicklisp/
 
 # Runtime state (don't commit live subscriber data)
 state/audit.sexp
+bin/mlisp-admin
