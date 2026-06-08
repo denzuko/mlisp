@@ -1,0 +1,22 @@
+;;;; build-admin.lisp — Compile mlisp-admin into a compressed native binary
+;;;;
+;;;; Usage:  sbcl --load build-admin.lisp
+;;;; Output: bin/mlisp-admin
+
+(let ((here (directory-namestring (truename *load-pathname*))))
+  (pushnew (truename here) asdf:*central-registry* :test #'equal)
+  (handler-case
+      (progn
+        (format t "~&[build] Loading mlisp-admin via ASDF~%")
+        (asdf:load-system :mlisp-admin))
+    (error (e)
+      (error "ASDF load of mlisp-admin failed: ~A" e)))
+  (let ((out (merge-pathnames "bin/mlisp-admin" here)))
+    (ensure-directories-exist out)
+    (format t "~&[build] Compiling to ~A~%" out)
+    (funcall (find-symbol "SAVE-LISP-AND-DIE" :sb-ext)
+             out
+             :toplevel          (find-symbol "ADMIN-MAIN" :mlisp-admin)
+             :executable        t
+             :compression       t
+             :save-runtime-options t)))

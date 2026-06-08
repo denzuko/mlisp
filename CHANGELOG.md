@@ -45,3 +45,21 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 [Unreleased]: https://github.com/denzuko/mlisp/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/denzuko/mlisp/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/denzuko/mlisp/releases/tag/v0.1.0
+
+## [Unreleased]
+
+### Added
+- XDG Base Dir Spec path resolution for state and templates
+  (`$XDG_CONFIG_HOME/mlisp/`, `~/.config/mlisp/`, binary dir fallback)
+- `--home <dir>` CLI flag on both `mlisp` and `mlisp-admin` (highest priority)
+- `mlisp-admin` management binary with subcommands: `show-config`, `init`,
+  `list-lists`, `add-list`, `rm-list`, `list-subs`, `add-sub`, `rm-sub`
+- `mlisp-admin.asd` ASDF system definition
+- `build-admin.lisp` standalone build script
+- 29 new BATS specs (`test/bats/test_mlisp_config.bats`)
+
+### Fixed
+- `parse-common-flags` do-loop double-advance on `--home` value token
+- `cmd-init` path resolution (missing trailing slash in `merge-pathnames`)
+- Format strings with `~/` escaped as `~~/` (SBCL `~/fn/` directive parse)
+- `mta.lisp` `from-addr` IGNORE style-warning causing ASDF load abort
