@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "feat/**", "fix/**", "chore/**", "refactor/**"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  build-and-test:
+    name: Build and test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y sbcl groff bats
+
+      - name: Install Quicklisp + FiveAM
+        run: |
+          curl -sO https://beta.quicklisp.org/quicklisp.lisp
+          sbcl --non-interactive \
+               --load quicklisp.lisp \
+               --eval '(quicklisp-quickstart:install :path (merge-pathnames "quicklisp/" (user-homedir-pathname)))' \
+               --eval '(ql:quickload :fiveam :silent t)'
+
+      - name: Compile binary
+        run: sbcl --non-interactive --load build.lisp
+
+      - name: Verify binary exists and runs
+        run: |
+          test -x bin/mlisp
+          bin/mlisp --help
+
+      - name: FiveAM unit tests
+        run: |
+          sbcl --non-interactive \
+               --eval "(load (merge-pathnames \"quicklisp/setup.lisp\" (user-homedir-pathname)))" \
+               --load test/fiveam/test-mlisp.lisp
+
+      - name: BATS integration tests
+        run: MLISP_HOME="$(pwd)" bats --tap test/bats/test_mlisp.bats
+
+      - name: BATS regression tests
+        run: MLISP_HOME="$(pwd)" bats --tap test/bats/test_mlisp_regression.bats
+
+      - name: BATS compliance tests (CAN-SPAM / GDPR / CASL)
+        run: MLISP_HOME="$(pwd)" bats --tap test/bats/test_mlisp_compliance.bats
+
+  notify-failure:
+    name: Notify on failure
+    needs: build-and-test
+    if: failure() && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Open failure issue
+        uses: jayqi/failed-build-issue-action@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          label-name: ci-failure
