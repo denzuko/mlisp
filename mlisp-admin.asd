@@ -7,7 +7,7 @@
   :description "Management CLI for mlisp — list, subscriber, and config administration"
   :author "Dwight Spencer <denzuko@dapla.net>"
   :license "BSD-2-Clause"
-  :version "0.2.0"
+  :version "0.3.0"
   :homepage "https://github.com/denzuko/mlisp"
 
   :build-operation "program-op"
