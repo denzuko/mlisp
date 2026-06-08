@@ -1,0 +1,10 @@
+(:document
+ (:title "DEVEL Mailing List -- Welcome")
+ (:author "denzuko+mlist-devel@panix.com")
+ (:abstract "Automated welcome message from the devel mailing list.")
+ (:section "Welcome")
+ (:pp "You have been successfully subscribed to the devel mailing list.")
+ (:pp "To post a message, send email to denzuko+mlist-devel@panix.com.")
+ (:pp "To unsubscribe, send a message with subject: unsubscribe.")
+ (:pp "To get this help again, send a message with subject: help.")
+ (:raw ".br"))

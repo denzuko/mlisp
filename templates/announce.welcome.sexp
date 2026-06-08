@@ -1,0 +1,10 @@
+(:document
+ (:title "ANNOUNCE Mailing List -- Welcome")
+ (:author "denzuko+mlist-announce@panix.com")
+ (:abstract "Automated welcome message from the announce mailing list.")
+ (:section "Welcome")
+ (:pp "You have been successfully subscribed to the announce mailing list.")
+ (:pp "To post a message, send email to denzuko+mlist-announce@panix.com.")
+ (:pp "To unsubscribe, send a message with subject: unsubscribe.")
+ (:pp "To get this help again, send a message with subject: help.")
+ (:raw ".br"))
