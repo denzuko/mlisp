@@ -121,16 +121,26 @@
           '(:lists
             ((:id "discuss"
               :drop-address "denzuko+mlist-discuss@panix.com"
-              :subscribers ("dwight@example.com" "alice@example.com"))
+              :postal-address "Da Planet Security, 1207 Delaware Ave Ste 103, Wilmington DE 19806, USA"
+              :privacy-url "https://dwightspencer.com/privacy"
+              :subscribers ((:address "dwight@example.com"
+                             :subscribed-at "2026-01-01T00:00:00"
+                             :consent-method "email-subscribe-command")
+                            (:address "alice@example.com"
+                             :subscribed-at "2026-01-01T00:00:00"
+                             :consent-method "email-subscribe-command")))
              (:id "devel"
               :drop-address "denzuko+mlist-devel@panix.com"
+              :postal-address "Da Planet Security, 1207 Delaware Ave Ste 103, Wilmington DE 19806, USA"
+              :privacy-url "https://dwightspencer.com/privacy"
               :subscribers ())))))
      ,@body))
 
 (test subscriber-present
   (with-test-state
     (is (mlisp::subscriber-p "discuss" "dwight@example.com"))
-    (is (mlisp::subscriber-p "discuss" "DWIGHT@EXAMPLE.COM"))))
+    (is (mlisp::subscriber-p "discuss" "DWIGHT@EXAMPLE.COM"))
+    (is (= 2 (length (mlisp::subscriber-addresses "discuss"))))))
 
 (test subscriber-absent
   (with-test-state
@@ -144,7 +154,7 @@
 (test add-subscriber-idempotent
   (with-test-state
     (mlisp::add-subscriber "discuss" "dwight@example.com")
-    (is (= 2 (length (mlisp::list-subscribers "discuss"))))))
+    (is (= 2 (length (mlisp::subscriber-addresses "discuss"))))))
 
 (test remove-subscriber-mutates-state
   (with-test-state
@@ -240,6 +250,43 @@
 ;;; ────────────────────────────────────────────────────────────────────────────
 ;;; Run and exit
 ;;; ────────────────────────────────────────────────────────────────────────────
+
+
+(test iso8601-now-format
+  (let ((ts (mlisp::iso8601-now)))
+    (is (= 19 (length ts)))
+    (is (char= #\T (char ts 10)))
+    (is (char= #\- (char ts 4)))
+    (is (char= #\: (char ts 13)))))
+
+(test add-subscriber-records-consent-metadata
+  (with-test-state
+    (mlisp::add-subscriber "devel" "newuser@example.com")
+    (let ((rec (find "newuser@example.com"
+                     (mlisp::list-subscribers "devel")
+                     :key (lambda (r) (getf r :address))
+                     :test #'string=)))
+      (is (not (null rec)))
+      (is (string= "email-subscribe-command" (getf rec :consent-method)))
+      (is (= 19 (length (getf rec :subscribed-at)))))))
+
+(test tag-subject-prepends-list-tag
+  (is (string= "[discuss] Hello world"
+               (mlisp::tag-subject "Hello world" "discuss"))))
+
+(test tag-subject-no-double-tag
+  (is (string= "[discuss] Already tagged"
+               (mlisp::tag-subject "[discuss] Already tagged" "discuss"))))
+
+(test compliance-footer-contains-postal-address
+  (with-test-state
+    (let ((footer (mlisp::compliance-footer-text "discuss")))
+      (is (search "1207 Delaware" footer))
+      (is (search "unsubscribe" footer)))))
+
+(test list-postal-address-returns-string
+  (with-test-state
+    (is (> (length (mlisp::list-postal-address "discuss")) 0))))
 
 (let ((results (run 'mlisp-suite)))
   (explain! results)

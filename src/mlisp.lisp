@@ -47,13 +47,16 @@
     (setf *state* (read s))))
 
 (defun save-state ()
-  "Persist *state* back to (state-path)."
+  "Persist *state* back to (state-path).
+   Uses lowercase keyword printing for human readability and grep compatibility."
   (with-open-file (s (state-path) :direction :output
                                   :if-exists :supersede)
-    (with-standard-io-syntax
-      (let ((*print-pretty* t))
-        (write *state* :stream s)
-        (terpri s)))))
+    (let ((*print-pretty*      t)
+          (*print-case*        :downcase)
+          (*print-readably*    nil)
+          (*print-escape*      t))
+      (write *state* :stream s)
+      (terpri s))))
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; State accessors
@@ -63,32 +66,62 @@
   "Return the plist for LIST-ID from state, or NIL."
   (find list-id (getf *state* :lists) :key (lambda (l) (getf l :id)) :test #'string=))
 
+;;; Subscriber records are plists:
+;;;   (:address "foo@bar.com"
+;;;    :subscribed-at "2026-06-08T12:00:00"
+;;;    :consent-method "email-subscribe-command")
+
 (defun list-subscribers (list-id)
-  "Return subscriber address list for LIST-ID."
+  "Return subscriber record list (plists) for LIST-ID."
   (getf (find-list list-id) :subscribers))
 
+(defun subscriber-addresses (list-id)
+  "Return flat list of subscriber email address strings for LIST-ID."
+  (mapcar (lambda (r) (getf r :address)) (list-subscribers list-id)))
+
 (defun subscriber-p (list-id address)
-  "Return T if ADDRESS is subscribed to LIST-ID."
+  "Return T if ADDRESS is subscribed to LIST-ID (case-insensitive)."
   (member (string-downcase address)
-          (mapcar #'string-downcase (list-subscribers list-id))
+          (mapcar #'string-downcase (subscriber-addresses list-id))
           :test #'string=))
 
+(defun iso8601-now ()
+  "Return current UTC time as ISO-8601 string YYYY-MM-DDTHH:MM:SS."
+  (multiple-value-bind (sec min hr day mon yr)
+      (decode-universal-time (get-universal-time) 0)
+    (format nil "~4,'0D-~2,'0D-~2,'0DT~2,'0D:~2,'0D:~2,'0D"
+            yr mon day hr min sec)))
+
 (defun add-subscriber (list-id address)
-  "Add ADDRESS to LIST-ID subscribers. No-op if already present."
+  "Add ADDRESS to LIST-ID subscribers with consent metadata. No-op if present."
   (unless (subscriber-p list-id address)
     (let ((lst (find-list list-id)))
       (when lst
         (setf (getf lst :subscribers)
-              (cons address (getf lst :subscribers)))))))
+              (cons (list :address (string-downcase address)
+                          :subscribed-at (iso8601-now)
+                          :consent-method "email-subscribe-command")
+                    (getf lst :subscribers)))))))
 
 (defun remove-subscriber (list-id address)
-  "Remove ADDRESS from LIST-ID subscribers."
+  "Remove ADDRESS from LIST-ID subscribers (GDPR Art.17 erasure)."
   (let ((lst (find-list list-id)))
     (when lst
       (setf (getf lst :subscribers)
             (remove (string-downcase address)
                     (getf lst :subscribers)
-                    :test (lambda (a b) (string= a (string-downcase b))))))))
+                    :key  (lambda (r) (string-downcase (getf r :address)))
+                    :test #'string=)))))
+
+(defun list-postal-address (list-id)
+  "Return the physical postal address for LIST-ID (CAN-SPAM § 7704(a)(5)(A))."
+  (or (getf (find-list list-id) :postal-address)
+      "Da Planet Security, 1207 Delaware Ave Ste 103, Wilmington DE 19806, USA"))
+
+(defun list-privacy-url (list-id)
+  "Return the privacy policy URL for LIST-ID."
+  (or (getf (find-list list-id) :privacy-url)
+      "https://dwightspencer.com/privacy"))
 
 (defun list-drop-address (list-id)
   "Return the canonical drop address for LIST-ID."
@@ -271,44 +304,111 @@
 ;;; MTA delivery
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Audit log (GDPR Art. 30 records of processing activity)
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(defun audit-path ()
+  "Path to the append-only audit event log."
+  (merge-pathnames "state/audit.sexp" (mlisp-home)))
+
+(defun audit-append (event-plist)
+  "Append EVENT-PLIST to the audit log, creating file if needed.
+   GDPR Art.30 records of processing activity."
+  (ignore-errors
+    (ensure-directories-exist (audit-path))
+    (with-open-file (s (audit-path)
+                       :direction :output
+                       :if-exists :append
+                       :if-does-not-exist :create)
+      (let ((*print-pretty*   nil)
+            (*print-case*     :downcase)
+            (*print-readably* nil)
+            (*print-escape*   t))
+        (write (list* :timestamp (iso8601-now) event-plist) :stream s)
+        (terpri s)))))
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; MTA delivery
+;;; ─────────────────────────────────────────────────────────────────────────────
+
 (defun sendmail (recipients body-string &key (extra-headers '()))
-  "Fork sendmail(8) to deliver BODY-STRING to RECIPIENTS list."
+  "Fork sendmail(8) to deliver BODY-STRING to RECIPIENTS list.
+   Broken-pipe on the input stream is silently ignored."
   (let ((proc (sb-ext:run-program (sendmail-path)
-                                  (list* "-i" "-t" (mapcar #'identity recipients))
+                                  (list* "-oi" recipients)
                                   :input :stream
                                   :output nil
                                   :error nil
                                   :wait nil)))
-    (let ((s (sb-ext:process-input proc)))
-      (dolist (h extra-headers)
-        (format s "~A: ~A~%" (car h) (cdr h)))
-      (write-string body-string s)
-      (close s))
+    (ignore-errors
+      (let ((s (sb-ext:process-input proc)))
+        (dolist (h extra-headers)
+          (format s "~A: ~A~%" (car h) (cdr h)))
+        (write-string body-string s)
+        (finish-output s)
+        (close s)))
     (sb-ext:process-wait proc)
     (sb-ext:process-exit-code proc)))
 
+(defun tag-subject (subject list-id)
+  "Prepend [LIST-ID] to SUBJECT if not already present (CAN-SPAM § 7704(a)(1))."
+  (let ((tag (format nil "[~A] " list-id)))
+    (if (search (string-downcase tag) (string-downcase subject))
+        subject
+        (concatenate 'string tag subject))))
+
+(defun compliance-footer-text (list-id)
+  "Return plain-text compliance footer for LIST-ID.
+   CAN-SPAM § 7704(a)(3)(A): unsubscribe mechanism.
+   CAN-SPAM § 7704(a)(5)(A): physical postal address."
+  (let* ((drop   (list-drop-address list-id))
+         (addr   (list-postal-address list-id))
+         (purl   (list-privacy-url list-id))
+         (line   (make-string 72 :initial-element #\-)))
+    (format nil "~%~A~%~
+You are receiving this because you subscribed to the ~A list.~%~
+~%~
+To unsubscribe, send email to ~A~%~
+with subject line: unsubscribe~%~
+~%~
+Privacy: ~A~%~
+~%~
+~A~%~
+~A~%~A~%"
+            line list-id drop purl line addr line)))
+
 (defun distribute-message (list-id from-addr headers body-lines)
-  "Deliver message to all subscribers of LIST-ID, injecting loop + List-Id headers."
-  (let* ((subscribers (list-subscribers list-id))
+  "Deliver message to all subscribers of LIST-ID.
+   Injects: loop protection, List-Id, Sender, subject tag, compliance footer."
+  (let* ((addrs       (subscriber-addresses list-id))
          (drop        (list-drop-address list-id))
          (loop-hdr    (list-loop-header list-id))
          (list-id-val (format nil "<~A.mlisp>" list-id))
-         (extra-headers
+         (raw-subject (or (header-value headers "Subject") "(no subject)"))
+         (tagged-subj (tag-subject raw-subject list-id))
+         (footer      (compliance-footer-text list-id))
+         (extra-hdrs
           (list (cons loop-hdr     "1")
                 (cons "List-Id"    list-id-val)
                 (cons "Sender"     drop)
-                (cons "Reply-To"   drop)))
-         ;; reconstruct body preserving original headers minus Sender/Reply-To
+                (cons "Reply-To"   drop)
+                (cons "Subject"    tagged-subj)))
          (msg-body
           (with-output-to-string (s)
+            ;; Re-emit headers, replacing Subject with tagged version,
+            ;; dropping Sender/Reply-To (we set them above)
             (dolist (h headers)
-              (unless (member (car h) '("SENDER" "REPLY-TO") :test #'string=)
+              (unless (member (car h) '("SENDER" "REPLY-TO" "SUBJECT")
+                              :test #'string=)
                 (format s "~A: ~A~%" (car h) (cdr h))))
             (terpri s)
             (dolist (line body-lines)
-              (write-line line s)))))
+              (write-line line s))
+            ;; CAN-SPAM / GDPR compliance footer
+            (write-string footer s))))
     (declare (ignore from-addr))
-    (sendmail subscribers msg-body :extra-headers extra-headers)))
+    (sendmail addrs msg-body :extra-headers extra-hdrs)))
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Administrative command handlers
@@ -317,6 +417,7 @@
 (defun handle-subscribe (list-id sender)
   (add-subscriber list-id sender)
   (save-state)
+  (audit-append (list :event :subscribe :list list-id :address sender))
   (let ((body (handler-case
                   (render-template list-id "welcome")
                 (error () (format nil "You have been subscribed to ~A.~%" list-id)))))
@@ -327,8 +428,10 @@
                                          (list-drop-address list-id))))))
 
 (defun handle-unsubscribe (list-id sender)
+  ;; GDPR Art.17 erasure: remove then audit
   (remove-subscriber list-id sender)
   (save-state)
+  (audit-append (list :event :unsubscribe :list list-id :address sender))
   (let ((body (handler-case
                   (render-template list-id "goodbye")
                 (error () (format nil "You have been unsubscribed from ~A.~%" list-id)))))
@@ -413,9 +516,13 @@ Send commands in Subject or first line of body.~%" list-id)))))
            (if (subscriber-p list-id from-addr)
                (progn
                  (distribute-message list-id from-addr headers body-lines)
+                 (audit-append (list :event :post-distributed
+                                     :list list-id :from from-addr))
                  0)
                (progn
                  (handle-reject list-id from-addr)
+                 (audit-append (list :event :post-rejected
+                                     :list list-id :from from-addr))
                  1))))))))
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
