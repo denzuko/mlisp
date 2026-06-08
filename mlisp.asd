@@ -33,6 +33,7 @@
     :components
     ((:file "package")
      (:file "state")
+     (:file "mime")
      (:file "parser")
      (:file "commands")
      (:file "troff")

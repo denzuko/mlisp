@@ -33,6 +33,13 @@
    #:sexp->troff
    #:render-troff-to-text
    #:render-template
+   ;; MIME inbound processor
+   #:strip-html
+   #:decode-html-entities
+   #:extract-mime-boundary
+   #:classify-content-type
+   #:mime-extract-text
+   #:process-body-for-distribution
    ;; Compliance
    #:tag-subject
    #:compliance-footer-text

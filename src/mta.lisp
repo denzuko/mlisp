@@ -88,17 +88,21 @@ Privacy: ~A~%~
                 (cons "Sender"     drop)
                 (cons "Reply-To"   drop)
                 (cons "Subject"    tagged-subj)))
+         ;; Strip inbound MIME/HTML; outbound is always plain text
+         (clean-body  (process-body-for-distribution headers body-lines))
          (msg-body
           (with-output-to-string (s)
             ;; Re-emit headers, replacing Subject with tagged version,
-            ;; dropping Sender/Reply-To (we set them above)
+            ;; dropping MIME/content headers and Sender/Reply-To
             (dolist (h headers)
-              (unless (member (car h) '("SENDER" "REPLY-TO" "SUBJECT")
+              (unless (member (car h)
+                              '("SENDER" "REPLY-TO" "SUBJECT"
+                                "CONTENT-TYPE" "CONTENT-TRANSFER-ENCODING"
+                                "CONTENT-DISPOSITION" "MIME-VERSION")
                               :test #'string=)
                 (format s "~A: ~A~%" (car h) (cdr h))))
             (terpri s)
-            (dolist (line body-lines)
-              (write-line line s))
+            (write-string clean-body s)
             ;; CAN-SPAM / GDPR compliance footer
             (write-string footer s))))
     (declare (ignore _from-addr))
