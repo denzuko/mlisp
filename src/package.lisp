@@ -45,6 +45,25 @@
    #:compliance-footer-text
    ;; Audit log (used by mlisp-admin)
    #:audit-append
+   ;; Metrics
+   #:write-metrics-file
+   #:record-metric
+   #:metrics-path
+   #:*metric-events*
+   ;; Bounce management
+   #:process-bounce
+   #:dsn-p
+   #:extract-final-recipients
+   #:increment-bounce
+   #:clear-bounce
+   #:subscriber-bounce-count
+   ;; State accessors - new fields
+   #:list-request-address
+   #:list-auto-subscribe-p
+   #:list-max-bounces
+   ;; Process mode
+   #:*process-mode*
+   #:*metrics-path-override*
    #:audit-path
    ;; Internal state (mlisp-admin needs direct access)
    #:*state*

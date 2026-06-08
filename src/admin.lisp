@@ -227,11 +227,14 @@
           (append (getf mlisp:*state* :lists)
                   (list (list :id id
                               :drop-address drop
+                              :request-address (mlisp:list-request-address id)
                               :description (or desc "")
                               :postal-address
-                              (mlisp:list-postal-address "discuss") ; inherit default
+                              (mlisp:list-postal-address "discuss")
                               :privacy-url
                               (mlisp:list-privacy-url "discuss")
+                              :auto-subscribe nil
+                              :max-bounces 5
                               :subscribers '()))))
     (mlisp:save-state)
     (format t "Created list ~A -> ~A~%" id drop)
@@ -269,14 +272,29 @@
 
 (defun procmail-recipe (list-id drop-address mlisp-bin home-dir)
   "Return a procmail recipe string for LIST-ID.
-   The comment line '# mlisp: <id>' is the idempotency marker."
+   Includes FROM_DAEMON guard, Precedence guard, idempotency marker."
   (format nil
 "# mlisp: ~A
 :0
+* !^FROM_DAEMON
+* !^FROM_MAILER
+* !^Precedence: (bulk|junk|list)
 * ^^TO_~A
 | ~A --home ~A ~A
+
+# mlisp: ~A-request
+:0
+* ^^TO_~A
+| ~A --home ~A --mode request ~A
 "
-          list-id drop-address mlisp-bin home-dir list-id))
+          list-id drop-address mlisp-bin home-dir list-id
+          list-id
+          ;; derive request address local-part for TO_ match
+          (let* ((at (position #\@ drop-address))
+                 (local (if at (subseq drop-address 0 at) drop-address))
+                 (domain (if at (subseq drop-address at) "")))
+            (concatenate 'string local "-request" domain))
+          mlisp-bin home-dir list-id))
 
 (defun procmailrc-has-list-p (path list-id)
   "Return T if PATH already contains a mlisp recipe for LIST-ID."
@@ -373,6 +391,84 @@
                       (format t "Added ~A -> ~A~%" id procmailrc))))))))
     0))
 
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Subcommand: set-option
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(defun cmd-set-option (args)
+  "Set a list option: set-option <list-id> <key> <value>"
+  (destructuring-bind (&optional list-id key value &rest _) args
+    (declare (ignore _))
+    (unless (and list-id key value)
+      (format *error-output* "mlisp-admin: set-option requires <list-id> <key> <value>~%")
+      (return-from cmd-set-option 1))
+    (mlisp:load-state)
+    (let ((lst (mlisp:find-list list-id)))
+      (unless lst
+        (format *error-output* "mlisp-admin: unknown list ~A~%" list-id)
+        (return-from cmd-set-option 1))
+      (let* ((kw  (intern (string-upcase key) :keyword))
+             (val (cond ((string-equal value "true")  t)
+                        ((string-equal value "false") nil)
+                        ((ignore-errors (parse-integer value)))
+                        (t value))))
+        (setf (getf lst kw) val)
+        (mlisp:save-state)
+        (format t "Set ~A :~A = ~S~%" list-id (string-downcase key) val)
+        0))))
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Subcommand: show-bounces
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(defun cmd-show-bounces (args)
+  (let ((list-id (first args)))
+    (unless list-id
+      (format *error-output* "mlisp-admin: show-bounces requires <list-id>~%")
+      (return-from cmd-show-bounces 1))
+    (mlisp:load-state)
+    (unless (mlisp:find-list list-id)
+      (format *error-output* "mlisp-admin: unknown list ~A~%" list-id)
+      (return-from cmd-show-bounces 1))
+    (let ((found nil))
+      (dolist (rec (mlisp:list-subscribers list-id))
+        (let ((n (or (getf rec :bounce-count) 0)))
+          (when (> n 0)
+            (setf found t)
+            (format t "~A  bounces=~A  last=~A~%"
+                    (getf rec :address)
+                    n
+                    (or (getf rec :last-bounce) "never")))))
+      (unless found (format t "No bounces recorded for ~A~%" list-id))
+      0)))
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Subcommand: clear-bounces
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(defun cmd-clear-bounces (args)
+  (destructuring-bind (&optional list-id address &rest _) args
+    (declare (ignore _))
+    (unless (and list-id address)
+      (format *error-output* "mlisp-admin: clear-bounces requires <list-id> <address>~%")
+      (return-from cmd-clear-bounces 1))
+    (mlisp:load-state)
+    (mlisp:clear-bounce list-id address)
+    (mlisp:save-state)
+    (format t "Cleared bounces for ~A on ~A~%" address list-id)
+    0))
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Subcommand: export-metrics
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(defun cmd-export-metrics ()
+  (mlisp:load-state)
+  (mlisp:write-metrics-file)
+  (format t "Metrics written to ~A~%" (mlisp:metrics-path))
+  0)
+
 (defun usage ()
   (format t
 "Usage: mlisp-admin [--home <dir>] <subcommand> [args...]
@@ -404,9 +500,10 @@ Config resolution order:
       (usage)
       (sb-ext:exit :code (if (null args) 1 0)))
 
-    ;; Extract --home flag
-    (multiple-value-bind (home-dir remaining)
+    ;; Extract --home and --mode flags
+    (multiple-value-bind (home-dir _mode remaining)
         (mlisp::parse-common-flags args)
+      (declare (ignore _mode))
       (when home-dir
         (setf mlisp:*mlisp-home-override* home-dir))
 
@@ -429,6 +526,10 @@ Config resolution order:
                     ((string= subcmd "rm-list")      (cmd-rm-list subcmd-args))
                     ((string= subcmd "install-procmail")
                                               (cmd-install-procmail subcmd-args))
+                    ((string= subcmd "set-option")     (cmd-set-option subcmd-args))
+                    ((string= subcmd "show-bounces")   (cmd-show-bounces subcmd-args))
+                    ((string= subcmd "clear-bounces")  (cmd-clear-bounces subcmd-args))
+                    ((string= subcmd "export-metrics") (cmd-export-metrics))
                     (t
                      (format *error-output*
                              "mlisp-admin: unknown subcommand ~S~%" subcmd)

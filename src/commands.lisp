@@ -9,22 +9,33 @@
 (defparameter *known-commands* '("subscribe" "unsubscribe" "help")
   "Administrative command keywords.")
 
+;;; Unsubscribe synonym patterns (smartlist-compatible)
+(defparameter *unsubscribe-synonyms*
+  '("unsubscribe" "remove me" "remove" "signoff" "sign-off" "opt-out" "optout")
+  "Subject/body patterns that trigger unsubscribe.")
+
+(defun matches-any (str patterns)
+  "Return T if STR contains any of PATTERNS (case-insensitive)."
+  (some (lambda (p) (search p (string-downcase str))) patterns))
+
 (defun detect-command (headers body-lines)
-  "Return one of :SUBSCRIBE :UNSUBSCRIBE :HELP or NIL for regular posts."
-  (let* ((subject (string-downcase (or (header-value headers "Subject") "")))
-         (first-body (string-downcase (or (first body-lines) "")))
-         (probe (lambda (s cmd) (search cmd s))))
+  "Return :SUBSCRIBE :UNSUBSCRIBE :HELP or NIL.
+   Recognises smartlist-compatible unsubscribe synonyms."
+  (let* ((subject    (or (header-value headers "Subject") ""))
+         (first-body (or (first body-lines) ""))
+         (unsub-p    (lambda (s)
+                       (matches-any s *unsubscribe-synonyms*)))
+         (sub-p      (lambda (s)
+                       (and (search "subscribe" (string-downcase s))
+                            (not (funcall unsub-p s))))))
     (cond
-      ((or (funcall probe subject "subscribe")
-           (funcall probe first-body "subscribe"))
-       (if (or (funcall probe subject "unsubscribe")
-               (funcall probe first-body "unsubscribe"))
-           :unsubscribe
-           :subscribe))
-      ((or (funcall probe subject "unsubscribe")
-           (funcall probe first-body "unsubscribe"))
+      ((or (funcall unsub-p subject)
+           (funcall unsub-p first-body))
        :unsubscribe)
-      ((or (funcall probe subject "help")
-           (funcall probe first-body "help"))
+      ((or (funcall sub-p subject)
+           (funcall sub-p first-body))
+       :subscribe)
+      ((or (search "help" (string-downcase subject))
+           (search "help" (string-downcase first-body)))
        :help)
       (t nil))))
