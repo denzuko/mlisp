@@ -1,3 +1,23 @@
+# Compiled binary
 bin/mlisp
+
+# ASDF / SBCL compiled artefacts
 *.fasl
-*.o
+*.abcl
+*.fas
+*.lib
+*.x86f
+*.sparcf
+*.dfsl
+*.lx32fsl
+*.lx64fsl
+src/mlisp.lisp.bak
+
+# ASDF output cache
+.cache/
+
+# Quicklisp local
+quicklisp/
+
+# Runtime state (don't commit live subscriber data)
+state/audit.sexp

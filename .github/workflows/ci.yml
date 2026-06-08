@@ -28,18 +28,23 @@ jobs:
                --eval '(quicklisp-quickstart:install :path (merge-pathnames "quicklisp/" (user-homedir-pathname)))' \
                --eval '(ql:quickload :fiveam :silent t)'
 
-      - name: Compile binary
-        run: sbcl --non-interactive --load build.lisp
+      - name: Compile binary (via ASDF)
+        run: |
+          sbcl --non-interactive \
+               --eval "(load (merge-pathnames \"quicklisp/setup.lisp\" (user-homedir-pathname)))" \
+               --load build.lisp
 
       - name: Verify binary exists and runs
         run: |
           test -x bin/mlisp
           bin/mlisp --help
 
-      - name: FiveAM unit tests
+      - name: FiveAM unit tests (via ASDF)
         run: |
           sbcl --non-interactive \
                --eval "(load (merge-pathnames \"quicklisp/setup.lisp\" (user-homedir-pathname)))" \
+               --eval "(ql:quickload :fiveam :silent t)" \
+               --eval "(push (truename \".\") asdf:*central-registry*)" \
                --load test/fiveam/test-mlisp.lisp
 
       - name: BATS integration tests
