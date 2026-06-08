@@ -141,7 +141,10 @@ Privacy: ~A~%~
           (cons "Return-Receipt-To"           req))))
 
 (defun handle-subscribe (list-id sender)
-  (add-subscriber list-id sender)
+  ;; Use hash-aware add when :hash-contacts t
+  (if (list-hash-contacts-p list-id)
+      (add-subscriber-hashed list-id sender)
+      (add-subscriber list-id sender))
   (save-state)
   (audit-append (list :event :subscribe :list list-id :address sender))
   (record-metric list-id :subscribe)
@@ -154,8 +157,10 @@ Privacy: ~A~%~
                               (format nil "Welcome to ~A" list-id)))))
 
 (defun handle-unsubscribe (list-id sender)
-  ;; GDPR Art.17 erasure: remove then audit
-  (remove-subscriber list-id sender)
+  ;; GDPR Art.17 erasure: remove then audit (hash-aware)
+  (if (list-hash-contacts-p list-id)
+      (remove-subscriber-hashed list-id sender)
+      (remove-subscriber list-id sender))
   (save-state)
   (audit-append (list :event :unsubscribe :list list-id :address sender))
   (record-metric list-id :unsubscribe)
