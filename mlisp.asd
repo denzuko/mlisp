@@ -38,6 +38,8 @@
      (:file "commands")
      (:file "troff")
      (:file "mta")
+     (:file "metrics")
+     (:file "bounce")
      (:file "main"))))
 
   :in-order-to ((test-op (test-op "mlisp-test"))))

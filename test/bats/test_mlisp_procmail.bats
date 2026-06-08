@@ -113,10 +113,11 @@ teardown() { rm -rf "${SCRATCH}"; }
     grep -qE "mlisp --home .+ discuss" "${HOME}/.procmailrc"
 }
 
-@test "PM-17 install-procmail appends 3 recipe blocks (one per list)" {
+@test "PM-17 install-procmail appends recipe blocks (list + request per list)" {
     "${ADMIN_BIN}" --home "${SCRATCH}" install-procmail
     count=$(grep -c "^:0" "${HOME}/.procmailrc")
-    [ "$count" -eq 3 ]
+    # 2 blocks per list (list + -request) * 3 lists = 6
+    [ "$count" -eq 6 ]
 }
 
 # ── idempotency ───────────────────────────────────────────────────────────────
@@ -125,7 +126,8 @@ teardown() { rm -rf "${SCRATCH}"; }
     "${ADMIN_BIN}" --home "${SCRATCH}" install-procmail
     "${ADMIN_BIN}" --home "${SCRATCH}" install-procmail
     count=$(grep -c "^:0" "${HOME}/.procmailrc")
-    [ "$count" -eq 3 ]
+    # Still 6 after two runs (idempotent)
+    [ "$count" -eq 6 ]
 }
 
 @test "PM-19 install-procmail preserves existing ~/.procmailrc content" {
@@ -153,10 +155,11 @@ teardown() { rm -rf "${SCRATCH}"; }
 
 # ── --list filter ─────────────────────────────────────────────────────────────
 
-@test "PM-21 install-procmail --list discuss installs only discuss recipe" {
+@test "PM-21 install-procmail --list discuss installs discuss and discuss-request" {
     "${ADMIN_BIN}" --home "${SCRATCH}" install-procmail --list discuss
     count=$(grep -c "^:0" "${HOME}/.procmailrc")
-    [ "$count" -eq 1 ]
+    # 2 blocks: discuss list + discuss-request
+    [ "$count" -eq 2 ]
     grep -q "discuss" "${HOME}/.procmailrc"
 }
 
