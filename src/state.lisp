@@ -156,6 +156,69 @@
   (or (getf (find-list list-id) :privacy-url)
       "https://dwightspencer.com/privacy"))
 
+(defun list-request-address (list-id)
+  "Return the -request command address for LIST-ID."
+  (or (getf (find-list list-id) :request-address)
+      (let ((drop (list-drop-address list-id)))
+        ;; Derive: foo+bar@host -> foo+bar-request@host
+        (if drop
+            (let* ((at (position #\@ drop))
+                   (local (subseq drop 0 at))
+                   (domain (subseq drop at)))
+              (concatenate 'string local "-request" domain))
+            nil))))
+
+(defun list-auto-subscribe-p (list-id)
+  "Return T if the list has :auto-subscribe set to T."
+  (getf (find-list list-id) :auto-subscribe))
+
+(defun list-max-bounces (list-id)
+  "Return the bounce threshold for LIST-ID."
+  (or (getf (find-list list-id) :max-bounces) 5))
+
+(defun subscriber-bounce-count (list-id address)
+  "Return the bounce count for ADDRESS on LIST-ID."
+  (let ((rec (find (string-downcase address)
+                   (list-subscribers list-id)
+                   :key (lambda (r) (string-downcase (getf r :address)))
+                   :test #'string=)))
+    (or (getf rec :bounce-count) 0)))
+
+(defun increment-bounce (list-id address)
+  "Increment bounce count for ADDRESS on LIST-ID. Returns new count."
+  (let* ((lst (find-list list-id))
+         (subs (getf lst :subscribers))
+         (rec (find (string-downcase address) subs
+                    :key (lambda (r) (string-downcase (getf r :address)))
+                    :test #'string=)))
+    (when rec
+      (let ((new-count (1+ (or (getf rec :bounce-count) 0))))
+        (setf (getf rec :bounce-count) new-count)
+        (setf (getf rec :last-bounce) (iso8601-now))
+        new-count))))
+
+(defun clear-bounce (list-id address)
+  "Reset bounce count for ADDRESS on LIST-ID."
+  (let* ((lst (find-list list-id))
+         (rec (find (string-downcase address)
+                    (getf lst :subscribers)
+                    :key (lambda (r) (string-downcase (getf r :address)))
+                    :test #'string=)))
+    (when rec
+      (setf (getf rec :bounce-count) 0)
+      (setf (getf rec :last-bounce) nil))))
+
+(defparameter *process-mode* :normal
+  "Processing mode: :normal, :request, or :bounce.")
+
+(defparameter *metrics-path-override* nil
+  "When non-nil, overrides the metrics file path.")
+
+(defun metrics-path ()
+  "Path to the Prometheus metrics file."
+  (or *metrics-path-override*
+      (merge-pathnames "metrics/mlisp.prom" (mlisp-home))))
+
 (defun list-drop-address (list-id)
   "Return the canonical drop address for LIST-ID."
   (getf (find-list list-id) :drop-address))

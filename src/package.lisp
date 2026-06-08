@@ -33,11 +33,67 @@
    #:sexp->troff
    #:render-troff-to-text
    #:render-template
+   ;; MIME inbound processor
+   #:strip-html
+   #:decode-html-entities
+   #:extract-mime-boundary
+   #:classify-content-type
+   #:mime-extract-text
+   #:process-body-for-distribution
    ;; Compliance
    #:tag-subject
    #:compliance-footer-text
+   ;; MTA (used by mlisp-admin approve and distrib)
+   #:sendmail
+   #:distribute-message
+   #:rfc2369-headers
+   #:compliance-footer-text
    ;; Audit log (used by mlisp-admin)
    #:audit-append
+   ;; Metrics
+   #:write-metrics-file
+   #:record-metric
+   #:metrics-path
+   #:*metric-events*
+   ;; Bounce management
+   #:process-bounce
+   #:dsn-p
+   #:extract-final-recipients
+   #:increment-bounce
+   #:clear-bounce
+   #:subscriber-bounce-count
+   ;; State accessors - new fields
+   #:list-request-address
+   #:list-auto-subscribe-p
+   #:list-max-bounces
+   ;; Daemon discrimination
+   #:daemon-message-p
+   #:daemon-drop-reason
+   ;; Dedup
+   #:duplicate-p
+   #:record-dedup
+   #:message-id
+   #:dedup-entries
+   #:clear-dedup-cache
+   ;; Maildir
+   #:maildir-write
+   #:maybe-archive-to-maildir
+   ;; Moderation queue
+   #:list-moderated-p
+   #:hold-message
+   #:held-queue
+   #:release-held
+   #:purge-held
+   #:list-digest-mode-p
+   #:buffer-for-digest
+   #:flush-digest
+   ;; Exploder
+   #:list-exploder-p
+   #:exploder-members
+   #:distribute-exploder
+   ;; Process mode
+   #:*process-mode*
+   #:*metrics-path-override*
    #:audit-path
    ;; Internal state (mlisp-admin needs direct access)
    #:*state*

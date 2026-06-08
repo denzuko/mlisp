@@ -72,68 +72,100 @@ Privacy: ~A~%~
 ~A~%~A~%"
             line list-id drop purl line addr line)))
 
+(defun rfc2369-headers (list-id)
+  "Return RFC 2369 List-* and Usenet crossover headers as an alist."
+  (let* ((drop (list-drop-address list-id))
+         (req  (list-request-address list-id))
+         (lid  (format nil "<~A.mlisp.dapla.net>" list-id)))
+    (list
+     (cons "List-Id"          lid)
+     (cons "List-Post"        (format nil "<mailto:~A>" drop))
+     (cons "List-Help"        (format nil "<mailto:~A?subject=help>" req))
+     (cons "List-Subscribe"   (format nil "<mailto:~A?subject=subscribe>" req))
+     (cons "List-Unsubscribe" (format nil "<mailto:~A?subject=unsubscribe>" req))
+     (cons "X-Mailing-List"   (format nil "<~A>" drop))
+     (cons "X-BeenThere"      drop)
+     (cons "Precedence"       "list"))))
+
 (defun distribute-message (list-id _from-addr headers body-lines)
-  "Deliver message to all subscribers of LIST-ID.
-   Injects: loop protection, List-Id, Sender, subject tag, compliance footer."
+  "Deliver individually to each subscriber (BCC privacy).
+   Strips MIME; injects RFC 2369 List-* headers, Usenet headers,
+   Precedence: list, subject tag, compliance footer."
   (let* ((addrs       (subscriber-addresses list-id))
          (drop        (list-drop-address list-id))
          (loop-hdr    (list-loop-header list-id))
-         (list-id-val (format nil "<~A.mlisp>" list-id))
          (raw-subject (or (header-value headers "Subject") "(no subject)"))
          (tagged-subj (tag-subject raw-subject list-id))
          (footer      (compliance-footer-text list-id))
+         (clean-body  (process-body-for-distribution headers body-lines))
          (extra-hdrs
-          (list (cons loop-hdr     "1")
-                (cons "List-Id"    list-id-val)
-                (cons "Sender"     drop)
-                (cons "Reply-To"   drop)
-                (cons "Subject"    tagged-subj)))
+          (append
+           (rfc2369-headers list-id)
+           (list (cons loop-hdr   "1")
+                 (cons "Sender"   drop)
+                 (cons "Reply-To" drop)
+                 (cons "Subject"  tagged-subj)
+                 (cons "To"       drop))))
          (msg-body
           (with-output-to-string (s)
-            ;; Re-emit headers, replacing Subject with tagged version,
-            ;; dropping Sender/Reply-To (we set them above)
             (dolist (h headers)
-              (unless (member (car h) '("SENDER" "REPLY-TO" "SUBJECT")
+              (unless (member (car h)
+                              '("SENDER" "REPLY-TO" "SUBJECT" "TO" "CC"
+                                "CONTENT-TYPE" "CONTENT-TRANSFER-ENCODING"
+                                "CONTENT-DISPOSITION" "MIME-VERSION"
+                                "LIST-ID" "X-MAILING-LIST" "PRECEDENCE")
                               :test #'string=)
                 (format s "~A: ~A~%" (car h) (cdr h))))
             (terpri s)
-            (dolist (line body-lines)
-              (write-line line s))
-            ;; CAN-SPAM / GDPR compliance footer
+            (write-string clean-body s)
             (write-string footer s))))
-    (declare (ignore _from-addr))
-    (sendmail addrs msg-body :extra-headers extra-hdrs)))
+    ;; Individual delivery — no subscriber address exposure
+    (dolist (addr addrs)
+      (sendmail (list addr) msg-body :extra-headers extra-hdrs))
+    (record-metric list-id :distributed)))
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Administrative command handlers
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
+(defun command-reply-headers (list-id subject-str)
+  "Return standard extra-headers for command reply messages.
+   Includes RFC 8098 MDN header for delivery tracking (no pixels)."
+  (let ((req (list-request-address list-id)))
+    (list (cons "Subject"    subject-str)
+          (cons "From"       (list-drop-address list-id))
+          (cons "Precedence" "bulk")
+          ;; RFC 8098 / RFC 3461: email-level delivery notification only
+          ;; No tracking pixels, no URLs, no cookies.
+          (cons "Disposition-Notification-To" req)
+          (cons "Return-Receipt-To"           req))))
+
 (defun handle-subscribe (list-id sender)
   (add-subscriber list-id sender)
   (save-state)
   (audit-append (list :event :subscribe :list list-id :address sender))
+  (record-metric list-id :subscribe)
   (let ((body (handler-case
                   (render-template list-id "welcome")
                 (error () (format nil "You have been subscribed to ~A.~%" list-id)))))
     (sendmail (list sender) body
-              :extra-headers (list (cons "Subject"
-                                         (format nil "Welcome to ~A" list-id))
-                                   (cons "From"
-                                         (list-drop-address list-id))))))
+              :extra-headers (command-reply-headers
+                              list-id
+                              (format nil "Welcome to ~A" list-id)))))
 
 (defun handle-unsubscribe (list-id sender)
   ;; GDPR Art.17 erasure: remove then audit
   (remove-subscriber list-id sender)
   (save-state)
   (audit-append (list :event :unsubscribe :list list-id :address sender))
+  (record-metric list-id :unsubscribe)
   (let ((body (handler-case
                   (render-template list-id "goodbye")
                 (error () (format nil "You have been unsubscribed from ~A.~%" list-id)))))
     (sendmail (list sender) body
-              :extra-headers (list (cons "Subject"
-                                         (format nil "Unsubscribed from ~A" list-id))
-                                   (cons "From"
-                                         (list-drop-address list-id))))))
+              :extra-headers (command-reply-headers
+                              list-id
+                              (format nil "Unsubscribed from ~A" list-id)))))
 
 (defun handle-help (list-id sender)
   (let ((body (handler-case
@@ -144,10 +176,9 @@ List: ~A~%~
 Commands: subscribe, unsubscribe, help~%~
 Send commands in Subject or first line of body.~%" list-id)))))
     (sendmail (list sender) body
-              :extra-headers (list (cons "Subject"
-                                         (format nil "Help: ~A mailing list" list-id))
-                                   (cons "From"
-                                         (list-drop-address list-id))))))
+              :extra-headers (command-reply-headers
+                              list-id
+                              (format nil "Help: ~A mailing list" list-id)))))
 
 (defun handle-reject (list-id sender)
   "Send typeset rejection notice to SENDER."

@@ -19,6 +19,17 @@
       ;; 1. Loop detection
       (when (header-value headers loop-hdr)
         (format *error-output* "mlisp: loop detected on ~A, dropping.~%" list-id)
+        (record-metric list-id :loop-drop)
+        (return-from process-message 0))
+
+      ;; 1b. Daemon / auto-responder discrimination
+      (when (daemon-message-p headers)
+        (let ((reason (daemon-drop-reason headers)))
+          (format *error-output* "mlisp: daemon message (~A) dropped on ~A~%"
+                  reason list-id)
+          (audit-append (list :event :daemon-drop :list list-id
+                              :reason reason :from from-addr))
+          (record-metric list-id :daemon-drop))
         (return-from process-message 0))
 
       ;; 2. Find list
@@ -39,17 +50,63 @@
            (handle-help list-id from-addr)
            0)
           (t
-           ;; 4. Subscriber authorization
+           ;; 4. Request mode: reject posts
+           (when (eq *process-mode* :request)
+             (format *error-output*
+                     "mlisp: --mode request: posts not accepted on ~A; use list address~%"
+                     list-id)
+             (record-metric list-id :request-reject)
+             (return-from process-message 1))
+           ;; 5. Exploder bypass: relay lists don't check per-list subscription
+           (when (list-exploder-p list-id)
+             (distribute-exploder list-id from-addr headers body-lines)
+             (audit-append (list :event :post-distributed :list list-id :from from-addr))
+             (record-metric list-id :distributed)
+             (return-from process-message 0))
+           ;; 6. Auto-subscribe on first post (if enabled)
+           (when (and (not (subscriber-p list-id from-addr))
+                      (list-auto-subscribe-p list-id))
+             (handle-subscribe list-id from-addr)
+             (audit-append (list :event :auto-subscribed
+                                 :list list-id :address from-addr)))
+           ;; 7. Subscriber authorization
            (if (subscriber-p list-id from-addr)
-               (progn
-                 (distribute-message list-id from-addr headers body-lines)
-                 (audit-append (list :event :post-distributed
-                                     :list list-id :from from-addr))
+               (let* ((msg-id (message-id headers body-lines)))
+                 ;; 7. Dedup check
+                 (when (duplicate-p list-id msg-id)
+                   (audit-append (list :event :duplicate :list list-id
+                                       :message-id msg-id))
+                   (record-metric list-id :duplicate)
+                   (return-from process-message 0))
+                 (record-dedup list-id msg-id)
+                 ;; 8. Exploder dispatch
+                 (cond
+                   ((list-exploder-p list-id)
+                    (distribute-exploder list-id from-addr headers body-lines))
+                   ;; 9. Moderation hold queue
+                   ((list-moderated-p list-id)
+                    (let ((seq (hold-message list-id headers body-lines)))
+                      (audit-append (list :event :held :list list-id
+                                          :seq seq :from from-addr))
+                      (record-metric list-id :held)))
+                   ;; 10. Digest buffer
+                   ((list-digest-mode-p list-id)
+                    (buffer-for-digest list-id headers body-lines)
+                    (audit-append (list :event :buffered-for-digest
+                                        :list list-id :from from-addr)))
+                   ;; 11. Normal distribution
+                   (t
+                    (maybe-archive-to-maildir list-id headers body-lines)
+                    (distribute-message list-id from-addr headers body-lines)
+                    (audit-append (list :event :post-distributed
+                                        :list list-id :from from-addr))
+                    (record-metric list-id :distributed)))
                  0)
                (progn
                  (handle-reject list-id from-addr)
                  (audit-append (list :event :post-rejected
                                      :list list-id :from from-addr))
+                 (record-metric list-id :rejected)
                  1))))))))
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
@@ -57,9 +114,10 @@
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
 (defun parse-common-flags (args)
-  "Extract --home <dir> from ARGS. Returns (values home-dir remaining-args).
-   Iterates manually to correctly skip the value token after --home."
+  "Extract --home and --mode from ARGS.
+   Returns (values home-dir mode remaining-args)."
   (let ((home nil)
+        (mode :normal)
         (rest '()))
     (do ((tail args (cdr tail)))
         ((null tail))
@@ -67,13 +125,17 @@
         (cond
           ((string= a "--home")
            (if (cdr tail)
-               (progn
-                 (setf home (cadr tail))
-                 (setf tail (cdr tail))) ; skip value token
+               (progn (setf home (cadr tail))
+                      (setf tail (cdr tail)))
                (error "--home requires a directory argument")))
-          (t
-           (push a rest)))))
-    (values home (nreverse rest))))
+          ((string= a "--mode")
+           (if (cdr tail)
+               (progn
+                 (setf mode (intern (string-upcase (cadr tail)) :keyword))
+                 (setf tail (cdr tail)))
+               (error "--mode requires an argument (normal, request, bounce)")))
+          (t (push a rest)))))
+    (values home mode (nreverse rest))))
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Entry point
@@ -100,10 +162,11 @@ Config resolution order:
 ")
       (sb-ext:exit :code 0))
 
-    (multiple-value-bind (home-dir remaining)
+    (multiple-value-bind (home-dir mode remaining)
         (parse-common-flags args)
       (when home-dir
         (setf *mlisp-home-override* home-dir))
+      (setf *process-mode* mode)
       (when (null remaining)
         (format *error-output* "mlisp: error: list-id required~%")
         (sb-ext:exit :code 1))
@@ -111,7 +174,10 @@ Config resolution order:
         (handler-case
             (progn
               (load-state)
-              (let ((code (process-message list-id)))
+              (let ((code (case mode
+                            (:bounce  (process-bounce list-id))
+                            (t        (process-message list-id)))))
+                (write-metrics-file)
                 (sb-ext:exit :code code)))
           (error (e)
             (format *error-output* "mlisp: fatal: ~A~%" e)
