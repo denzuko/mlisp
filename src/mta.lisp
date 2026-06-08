@@ -6,10 +6,6 @@
 ;;; Audit log (GDPR Art. 30 records of processing activity)
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
-(defun audit-path ()
-  "Path to the append-only audit event log."
-  (merge-pathnames "state/audit.sexp" (mlisp-home)))
-
 (defun audit-append (event-plist)
   "Append EVENT-PLIST to the audit log, creating file if needed.
    GDPR Art.30 records of processing activity."
@@ -76,7 +72,7 @@ Privacy: ~A~%~
 ~A~%~A~%"
             line list-id drop purl line addr line)))
 
-(defun distribute-message (list-id from-addr headers body-lines)
+(defun distribute-message (list-id _from-addr headers body-lines)
   "Deliver message to all subscribers of LIST-ID.
    Injects: loop protection, List-Id, Sender, subject tag, compliance footer."
   (let* ((addrs       (subscriber-addresses list-id))
@@ -105,7 +101,7 @@ Privacy: ~A~%~
               (write-line line s))
             ;; CAN-SPAM / GDPR compliance footer
             (write-string footer s))))
-    (declare (ignore from-addr))
+    (declare (ignore _from-addr))
     (sendmail addrs msg-body :extra-headers extra-hdrs)))
 
 ;;; ─────────────────────────────────────────────────────────────────────────────

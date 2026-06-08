@@ -1,23 +1,30 @@
 # mlisp Makefile
-# Targets: all build test test-unit test-bats clean install
 
 SBCL      ?= sbcl
 BATS      ?= bats
-GROFF     ?= groff
 PREFIX    ?= /usr/local
-MLISP_BIN := bin/mlisp
+QL_SETUP  := $(HOME)/quicklisp/setup.lisp
+SBCL_FLAGS = --non-interactive $(if $(wildcard $(QL_SETUP)),--eval '(load "$(QL_SETUP")',)
 
-.PHONY: all build test test-unit test-bats clean install
+.PHONY: all build build-admin test test-unit test-bats clean install
 
-all: build
+all: build build-admin
 
 ## ── Compile ──────────────────────────────────────────────────────────────────
 
-build: $(MLISP_BIN)
+build: bin/mlisp
 
-$(MLISP_BIN): src/mlisp.lisp build.lisp
-	@mkdir -p bin
-	$(SBCL) --non-interactive --load build.lisp
+bin/mlisp: mlisp.asd src/*.lisp build.lisp
+	$(SBCL) --non-interactive \
+	  $(shell test -f $(QL_SETUP) && echo "--eval '(load \"$(QL_SETUP)\")'") \
+	  --load build.lisp
+
+build-admin: bin/mlisp-admin
+
+bin/mlisp-admin: mlisp-admin.asd src/admin.lisp bin/mlisp
+	$(SBCL) --non-interactive \
+	  $(shell test -f $(QL_SETUP) && echo "--eval '(load \"$(QL_SETUP)\")'") \
+	  --load build-admin.lisp
 
 ## ── Tests ────────────────────────────────────────────────────────────────────
 
@@ -25,24 +32,35 @@ test: test-unit test-bats
 
 test-unit:
 	@echo "==> FiveAM unit tests"
-	$(SBCL) --non-interactive --load test/fiveam/test-mlisp.lisp
+	$(SBCL) --non-interactive \
+	  $(shell test -f $(QL_SETUP) && echo "--eval '(load \"$(QL_SETUP)\")'") \
+	  --eval "(ql:quickload :fiveam :silent t)" \
+	  --eval "(push (truename \".\") asdf:*central-registry*)" \
+	  --load test/fiveam/test-mlisp.lisp
 
-test-bats: $(MLISP_BIN)
+test-bats: bin/mlisp bin/mlisp-admin
 	@echo "==> BATS integration tests"
 	MLISP_HOME=$(CURDIR) $(BATS) --tap test/bats/test_mlisp.bats
+	@echo "==> BATS regression tests"
+	MLISP_HOME=$(CURDIR) $(BATS) --tap test/bats/test_mlisp_regression.bats
+	@echo "==> BATS compliance tests"
+	MLISP_HOME=$(CURDIR) $(BATS) --tap test/bats/test_mlisp_compliance.bats
+	@echo "==> BATS config/admin tests"
+	MLISP_HOME=$(CURDIR) $(BATS) --tap test/bats/test_mlisp_config.bats
 
 ## ── Install ──────────────────────────────────────────────────────────────────
 
-install: build
+install: build build-admin
 	install -d $(PREFIX)/bin
-	install -m 0755 $(MLISP_BIN) $(PREFIX)/bin/mlisp
+	install -m 0755 bin/mlisp       $(PREFIX)/bin/mlisp
+	install -m 0755 bin/mlisp-admin $(PREFIX)/bin/mlisp-admin
 	install -d $(PREFIX)/share/mlisp/state
 	install -d $(PREFIX)/share/mlisp/templates
-	install -m 0644 state/state.sexp $(PREFIX)/share/mlisp/state/state.sexp
-	install -m 0644 templates/*.sexp $(PREFIX)/share/mlisp/templates/
+	install -m 0644 state/state.sexp     $(PREFIX)/share/mlisp/state/
+	install -m 0644 templates/*.sexp     $(PREFIX)/share/mlisp/templates/
 
 ## ── Clean ────────────────────────────────────────────────────────────────────
 
 clean:
-	rm -f $(MLISP_BIN)
+	rm -f bin/mlisp bin/mlisp-admin
 	find . -name '*.fasl' -delete

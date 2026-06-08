@@ -35,4 +35,18 @@
    #:render-template
    ;; Compliance
    #:tag-subject
-   #:compliance-footer-text))
+   #:compliance-footer-text
+   ;; Audit log (used by mlisp-admin)
+   #:audit-append
+   #:audit-path
+   ;; Internal state (mlisp-admin needs direct access)
+   #:*state*
+   ;; Path resolution (used by mlisp-admin)
+   #:mlisp-home
+   #:*mlisp-home-override*
+   #:state-path
+   #:audit-path
+   #:template-dir
+   #:sendmail-path
+   ;; Arg parsing (used by mlisp-admin)
+   #:parse-common-flags))

@@ -4,18 +4,56 @@
 (in-package #:mlisp)
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
-;;; Constants
+;;; Runtime path resolution (XDG Base Dir Spec + MLISP_HOME + --home flag)
+;;;
+;;; Priority (lowest → highest):
+;;;   /etc/mlisp/                    compiled-in default
+;;;   $XDG_CONFIG_HOME/mlisp/        XDG spec
+;;;   ~/.config/mlisp/               XDG fallback when XDG_CONFIG_HOME unset
+;;;   $MLISP_HOME                    env override
+;;;   *mlisp-home-override*          set by --home CLI flag (highest)
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
+(defparameter *mlisp-home-override* nil
+  "When non-nil, overrides all other home resolution (set by --home flag).")
+
+(defparameter *state* nil "In-memory copy of the state database.")
+
+(defun ensure-trailing-slash (s)
+  "Return S with a trailing slash, or the empty string if S is nil/empty."
+  (if (and s (> (length s) 0))
+      (if (char= (char s (1- (length s))) #\/)
+          s
+          (concatenate 'string s "/"))
+      nil))
+
+(defun xdg-config-home ()
+  "Return $XDG_CONFIG_HOME if set, else ~/.config/."
+  (let ((xdg (sb-ext:posix-getenv "XDG_CONFIG_HOME")))
+    (if (and xdg (> (length xdg) 0))
+        (ensure-trailing-slash xdg)
+        (let ((home (sb-ext:posix-getenv "HOME")))
+          (when home
+            (concatenate 'string home "/.config/"))))))
+
 (defun mlisp-home ()
-  "Return the runtime base directory, from MLISP_HOME env or binary location."
-  (let ((env (sb-ext:posix-getenv "MLISP_HOME")))
-    (if (and env (> (length env) 0))
-        (if (char= (char env (1- (length env))) #\/)
-            env
-            (concatenate 'string env "/"))
-        (directory-namestring
-         (truename sb-ext:*runtime-pathname*)))))
+  "Resolve config directory using priority chain.
+   Returns a pathname string with trailing slash."
+  (or
+   ;; 1. --home CLI flag (highest)
+   (ensure-trailing-slash *mlisp-home-override*)
+   ;; 2. MLISP_HOME env var
+   (ensure-trailing-slash (sb-ext:posix-getenv "MLISP_HOME"))
+   ;; 3. XDG: $XDG_CONFIG_HOME/mlisp/ or ~/.config/mlisp/
+   (let ((xdg (xdg-config-home)))
+     (when xdg
+       (let ((p (concatenate 'string xdg "mlisp/")))
+         ;; Only use XDG path if state.sexp actually exists there
+         (when (probe-file (concatenate 'string p "state/state.sexp"))
+           p))))
+   ;; 4. Compiled-in default: directory of the running binary
+   (directory-namestring
+    (truename sb-ext:*runtime-pathname*))))
 
 (defun state-path ()
   (merge-pathnames "state/state.sexp" (mlisp-home)))
@@ -23,11 +61,13 @@
 (defun template-dir ()
   (merge-pathnames "templates/" (mlisp-home)))
 
+(defun audit-path ()
+  "Path to the append-only audit event log."
+  (merge-pathnames "state/audit.sexp" (mlisp-home)))
+
 (defun sendmail-path ()
   "Return the sendmail(8) binary path, from MLISP_SENDMAIL env or default."
   (or (sb-ext:posix-getenv "MLISP_SENDMAIL") "/usr/sbin/sendmail"))
-
-(defparameter *state* nil "In-memory copy of the state database.")
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; State I/O
