@@ -18,7 +18,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y sbcl groff bats
+          sudo apt-get install -y sbcl groff bats gpg
 
       - name: Install Quicklisp + FiveAM
         run: |
@@ -28,24 +28,41 @@ jobs:
                --eval '(quicklisp-quickstart:install :path (merge-pathnames "quicklisp/" (user-homedir-pathname)))' \
                --eval '(ql:quickload :fiveam :silent t)'
 
-      - name: Compile binary (via ASDF)
-        run: |
-          sbcl --non-interactive \
-               --eval "(load (merge-pathnames \"quicklisp/setup.lisp\" (user-homedir-pathname)))" \
-               --load build.lisp
+      - name: Build mlisp
+        run: sbcl --non-interactive --load build.lisp
 
-      - name: Verify binary exists and runs
+      - name: Build mlisp-admin
+        run: sbcl --non-interactive --load build-admin.lisp
+
+      - name: Build mlisp-distrib
+        run: sbcl --non-interactive --load build-distrib.lisp
+
+      - name: Verify binaries exist and run
         run: |
           test -x bin/mlisp
+          test -x bin/mlisp-admin
+          test -x bin/mlisp-distrib
           bin/mlisp --help
+          bin/mlisp-admin --help
+          bin/mlisp-distrib --help
 
-      - name: FiveAM unit tests (via ASDF)
+      - name: FiveAM unit tests — mlisp
         run: |
+          sbcl --non-interactive \
+               --load build.lisp 2>/dev/null || true
           sbcl --non-interactive \
                --eval "(load (merge-pathnames \"quicklisp/setup.lisp\" (user-homedir-pathname)))" \
                --eval "(ql:quickload :fiveam :silent t)" \
                --eval "(push (truename \".\") asdf:*central-registry*)" \
                --load test/fiveam/test-mlisp.lisp
+
+      - name: FiveAM unit tests — MIME
+        run: |
+          sbcl --non-interactive \
+               --eval "(load (merge-pathnames \"quicklisp/setup.lisp\" (user-homedir-pathname)))" \
+               --eval "(ql:quickload :fiveam :silent t)" \
+               --eval "(push (truename \".\") asdf:*central-registry*)" \
+               --load test/fiveam/test-mlisp-mime.lisp
 
       - name: BATS integration tests
         run: MLISP_HOME="$(pwd)" bats --tap test/bats/test_mlisp.bats
@@ -53,8 +70,26 @@ jobs:
       - name: BATS regression tests
         run: MLISP_HOME="$(pwd)" bats --tap test/bats/test_mlisp_regression.bats
 
-      - name: BATS compliance tests (CAN-SPAM / GDPR / CASL)
+      - name: BATS compliance tests
         run: MLISP_HOME="$(pwd)" bats --tap test/bats/test_mlisp_compliance.bats
+
+      - name: BATS config/admin tests
+        run: MLISP_HOME="$(pwd)" bats --tap test/bats/test_mlisp_config.bats
+
+      - name: BATS procmail tests
+        run: MLISP_HOME="$(pwd)" bats --tap test/bats/test_mlisp_procmail.bats
+
+      - name: BATS MIME tests
+        run: MLISP_HOME="$(pwd)" bats --tap test/bats/test_mlisp_mime.bats
+
+      - name: BATS feature tests
+        run: MLISP_HOME="$(pwd)" bats --tap test/bats/test_mlisp_features.bats
+
+      - name: BATS batch2 tests
+        run: MLISP_HOME="$(pwd)" bats --tap test/bats/test_mlisp_batch2.bats
+
+      - name: BATS GPG/hash tests
+        run: MLISP_HOME="$(pwd)" bats --tap test/bats/test_mlisp_gpg.bats
 
   notify-failure:
     name: Notify on failure

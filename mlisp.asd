@@ -14,7 +14,7 @@
   :author "Dwight Spencer <denzuko@dapla.net>"
   :maintainer "Dwight Spencer <denzuko@dapla.net>"
   :license "BSD-2-Clause"
-  :version "0.2.0"
+  :version "0.3.0"
   :homepage "https://github.com/denzuko/mlisp"
   :bug-tracker "https://github.com/denzuko/mlisp/issues"
   :source-control (:git "https://github.com/denzuko/mlisp.git")
@@ -33,6 +33,7 @@
     :components
     ((:file "package")
      (:file "state")
+     (:file "gpg")
      (:file "mime")
      (:file "parser")
      (:file "commands")

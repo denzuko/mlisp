@@ -106,16 +106,86 @@ Content-Disposition: attachment; filename=~S~%~%~
               fname (length addrs) list-id)
       0)))
 
+(defun distrib-index (list-id)
+  "Send the file index for LIST-ID to all subscribers."
+  (let* ((lst   (mlisp:find-list list-id))
+         (ddir  (getf lst :distrib-path))
+         (drop  (mlisp:list-drop-address list-id))
+         (addrs (mlisp:subscriber-addresses list-id)))
+    (unless ddir
+      (format *error-output* "mlisp-distrib: no distrib-path configured for ~A~%" list-id)
+      (return-from distrib-index 1))
+    (let* ((files (if (probe-file ddir)
+                      (uiop:directory-files
+                       (uiop:ensure-directory-pathname ddir))
+                      '()))
+           (body
+            (with-output-to-string (s)
+              (format s "[~A] Available files:~%~%" list-id)
+              (if files
+                  (dolist (f files)
+                    (format s "  ~A  (~A bytes)~%"
+                            (file-namestring f)
+                            (ignore-errors
+                              (with-open-file (fs f :element-type '(unsigned-byte 8))
+                                (file-length fs)))))
+                  (format s "  (no files available)~%"))
+              (format s "~%To receive a file, send email to ~A~%~
+with subject: get <filename>~%" drop)))
+           (extra-hdrs
+            (append
+             (mlisp:rfc2369-headers list-id)
+             (list (cons "Subject" (format nil "[~A] File index" list-id))
+                   (cons "Sender" drop)
+                   (cons "To"     drop)
+                   (cons (mlisp:list-loop-header list-id) "1")))))
+      (dolist (addr addrs)
+        (mlisp:sendmail (list addr) body :extra-headers extra-hdrs))
+      (format t "Sent index (~A file~:P) to ~A subscriber~:P on ~A~%"
+              (length files) (length addrs) list-id)
+      0)))
+
+(defun distrib-get (list-id filename requestor)
+  "Send a specific file to REQUESTOR from the LIST-ID distrib spool."
+  (let* ((lst  (mlisp:find-list list-id))
+         (ddir (getf lst :distrib-path)))
+    (unless ddir
+      (format *error-output* "mlisp-distrib: no distrib-path for ~A~%" list-id)
+      (return-from distrib-get 1))
+    (let ((path (merge-pathnames filename (uiop:ensure-directory-pathname ddir))))
+      (unless (probe-file path)
+        (format *error-output* "mlisp-distrib: file not found: ~A~%" filename)
+        (return-from distrib-get 1))
+      (let ((extra-hdrs
+             (append
+              (mlisp:rfc2369-headers list-id)
+              (list (cons "Subject"  (format nil "[~A] ~A" list-id filename))
+                    (cons "To"       requestor)
+                    (cons "Sender"   (mlisp:list-drop-address list-id))
+                    (cons (mlisp:list-loop-header list-id) "1"))))
+            (body (format nil "File: ~A~%~%~A" filename
+                          (ignore-errors (base64-encode-file path)))))
+        (mlisp:sendmail (list requestor) body :extra-headers extra-hdrs)
+        (format t "Sent ~A to ~A~%" filename requestor)
+        0))))
+
 (defun distrib-main ()
   "Entry point for mlisp-distrib binary.
-   Usage: mlisp-distrib [--home <dir>] <list-id> <file>"
+   Usage: mlisp-distrib [--home <dir>] <list-id> <file>
+          mlisp-distrib [--home <dir>] <list-id> --index"
   (let ((args (cdr sb-ext:*posix-argv*)))
     (when (or (null args) (member "--help" args :test #'string=))
-      (format t "Usage: mlisp-distrib [--home <dir>] <list-id> <file>~%~
-~%~
-Distributes <file> as a MIME attachment to all subscribers of <list-id>.~%~
-~%~
-The list must be of type :distrib (created with mlisp-admin add-distrib).~%")
+      (format t
+"Usage: mlisp-distrib [--home <dir>] <list-id> <file>
+       mlisp-distrib [--home <dir>] <list-id> --index
+
+Distribute a file or send the file index to all subscribers.
+
+  <file>    Distribute file as MIME attachment to all subscribers
+  --index   Send current file index to all subscribers
+
+The list must be of type :distrib (mlisp-admin add-distrib).
+")
       (sb-ext:exit :code (if (null args) 1 0)))
 
     (multiple-value-bind (home-dir _mode remaining)
@@ -123,16 +193,23 @@ The list must be of type :distrib (created with mlisp-admin add-distrib).~%")
       (declare (ignore _mode))
       (when home-dir (setf mlisp:*mlisp-home-override* home-dir))
 
-      (when (< (length remaining) 2)
-        (format *error-output* "mlisp-distrib: error: list-id and file required~%")
+      (when (null remaining)
+        (format *error-output* "mlisp-distrib: error: list-id required~%")
         (sb-ext:exit :code 1))
 
-      (let ((list-id   (string-downcase (first remaining)))
-            (file-path (second remaining)))
+      (let ((list-id (string-downcase (first remaining)))
+            (arg2    (second remaining)))
         (handler-case
             (progn
               (mlisp:load-state)
-              (sb-ext:exit :code (distrib-file list-id file-path)))
+              (sb-ext:exit
+               :code (cond
+                 ;; mlisp-distrib <list-id> --index
+                 ((or (null arg2) (string= arg2 "--index"))
+                  (distrib-index list-id))
+                 ;; mlisp-distrib <list-id> <file>
+                 (t
+                  (distrib-file list-id arg2)))))
           (error (e)
             (format *error-output* "mlisp-distrib: fatal: ~A~%" e)
             (sb-ext:exit :code 2)))))))

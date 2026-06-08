@@ -14,7 +14,11 @@
   "Generate a unique Maildir filename per the spec:
    <timestamp>.<pid>.<hostname>"
   (let* ((ts   (get-universal-time))
-         (pid  (sb-posix:getpid))
+         ;; sb-posix may not be loaded; try to require it gracefully
+         (pid  (or (ignore-errors
+                     (progn (require :sb-posix)
+                            (funcall (find-symbol "GETPID" :sb-posix))))
+                   (mod (get-universal-time) 999983)))
          (host (or (ignore-errors
                      (string-trim '(#\Space #\Newline #\Return)
                        (with-output-to-string (s)

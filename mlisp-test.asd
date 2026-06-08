@@ -1,25 +1,27 @@
 ;;;; mlisp-test.asd — ASDF test system for mlisp
 ;;;;
-;;;; Run via: (asdf:test-system :mlisp)
-;;;;   -or-   (asdf:load-system :mlisp-test)
-;;;;          (fiveam:run! 'mlisp-tests:mlisp-suite)
+;;;; Run via:  (asdf:test-system :mlisp)
+;;;;   -or-   make test-unit
 
 (defsystem "mlisp-test"
-  :description "FiveAM test suite for mlisp"
+  :description "FiveAM test suite for mlisp (core + MIME)"
   :author "Dwight Spencer <denzuko@dapla.net>"
   :license "BSD-2-Clause"
-  :version "0.2.0"
-
+  :version "0.3.0"
   :depends-on ("mlisp" "fiveam")
 
-  :components
-  ((:module "test"
-    :components
-    ((:module "fiveam"
-      :components
-      ((:file "test-mlisp"))))))
-
-  ;; asdf:test-system :mlisp dispatches here via mlisp.asd :in-order-to
   :perform (test-op (op system)
-    (uiop:symbol-call :fiveam :run!
-                      (uiop:find-symbol* :mlisp-suite :mlisp-tests))))
+    (declare (ignore op))
+    (let* ((root  (asdf:system-source-directory system))
+           (sbcl  (or (uiop:getenv "SBCL_PATH")
+                      (cl-user::find-program "sbcl"
+                                            '("/usr/bin/sbcl"
+                                              "/usr/local/bin/sbcl"))
+                      "sbcl"))
+           (args  (list "--non-interactive")))
+      (dolist (file '("test/fiveam/test-mlisp.lisp"
+                      "test/fiveam/test-mlisp-mime.lisp"))
+        (uiop:run-program
+         (append (list sbcl) args
+                 (list "--load" (namestring (merge-pathnames file root))))
+         :output :interactive :error :interactive)))))
