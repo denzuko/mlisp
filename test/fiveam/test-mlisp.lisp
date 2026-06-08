@@ -17,14 +17,22 @@
           (format *error-output* "[SKIP] FiveAM not available.~%")
           (sb-ext:exit :code 77))))))
 
-;;; ── Load mlisp source ──────────────────────────────────────────────────────
+;;; ── Load mlisp: no-op if already loaded (e.g. via asdf:test-system),
+;;; ── ASDF load if available, direct component load as last resort.
 (let* ((here (directory-namestring (truename *load-pathname*)))
-       ;; walk two levels up: test/fiveam/ -> test/ -> project root
        (root (namestring
               (truename
-               (merge-pathnames "../../" (parse-namestring here)))))
-       (src  (merge-pathnames "src/mlisp.lisp" root)))
-  (load src))
+               (merge-pathnames "../../" (parse-namestring here))))))
+  (unless (find-package :mlisp)
+    (pushnew (truename root) asdf:*central-registry* :test #'equal)
+    (handler-case
+        (asdf:load-system :mlisp)
+      (error (e)
+        (format *error-output* "~&ASDF load failed (~A), loading directly~%" e)
+        (dolist (f '("src/package.lisp" "src/state.lisp" "src/parser.lisp"
+                     "src/commands.lisp" "src/troff.lisp" "src/mta.lisp"
+                     "src/main.lisp"))
+          (load (merge-pathnames f root)))))))
 
 ;;; ── Test package ───────────────────────────────────────────────────────────
 (defpackage #:mlisp-tests
