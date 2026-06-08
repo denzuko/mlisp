@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.3.0] — Unreleased
+
+### Added
+- **MIME inbound** (`src/mime.lisp`): strip HTML/multipart from inbound; outbound always 7-bit ASCII
+- **BCC delivery**: individual sendmail per subscriber; To: shows list address only
+- **RFC 2369 headers**: List-Unsubscribe, List-Subscribe, List-Post, List-Help, X-BeenThere, X-Mailing-List, Precedence: list
+- **-request addresses**: per-list command-only endpoint; `--mode request` CLI flag
+- **Bounce management** (`src/bounce.lisp`): RFC 3464 DSN detection; bounce-count threshold removal; `show-bounces`/`clear-bounces`
+- **Auto-subscribe**: `:auto-subscribe t` per list; `set-option` admin command
+- **Prometheus metrics** (`src/metrics.lisp`): OpenMetrics textfile; node_exporter compatible
+- **MDN/RRT headers**: `Disposition-Notification-To` + `Return-Receipt-To` on command replies (RFC 8098/3461)
+- **Unsubscribe synonyms**: `remove me`, `remove`, `signoff`, `opt-out` all trigger unsubscribe
+- **Daemon discrimination** (`src/daemon.lisp`): drop Return-Path: <>, MAILER-DAEMON, Auto-Submitted, Precedence: junk/bulk
+- **Dedup** (`src/dedup.lisp`): 24h Message-Id ring buffer per list; `show-dedup`/`clear-dedup`
+- **Moderator queue** (`src/modqueue.lisp`): held queue + `approve`/`reject`/`hold-queue` admin commands
+- **Digest mode** (`src/modqueue.lisp`): buffer + `flush-digest`; numbered Vol/Issue; cron-compatible
+- **Exploder** (`src/exploder.lisp`): list-of-lists fan-out; per-member RFC 2369 headers
+- **Maildir** (`src/maildir.lisp`): write-only Maildir spool for notmuch/mutt; atomic tmp→new
+- **mlisp-distrib** (`src/distrib.lisp`): new binary; MIME base64 file attachment distribution
+- **Hash at rest** (`src/gpg.lisp`): pure-CL SHA-256; `:hash-contacts t` stores only address digest
+- **GPG require-signed**: `:require-signed t` rejects unsigned posts; `gpg(1)` verification
+- **procmail integration**: `etc/procmailrc.sample`; `mlisp-admin install-procmail` with FROM_DAEMON guards
+- **XDG config** (`~/.config/mlisp/`): full XDG Base Dir Spec path resolution
+- **`--home` flag**: CLI override for all path resolution
+- **mlisp-admin**: 20+ subcommands covering all list/subscriber/config management
+- **ASDF systems**: `mlisp.asd`, `mlisp-test.asd`, `mlisp-admin.asd`, `mlisp-distrib.asd`
+
+### Test coverage: 275 tests (78 FiveAM + 197 BATS)
+
+[0.3.0]: https://github.com/denzuko/mlisp/compare/v0.2.0...HEAD
+
 All notable changes to mlisp are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
