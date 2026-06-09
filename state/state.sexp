@@ -7,7 +7,6 @@
    :postal-address "Da Planet Security, c/o Office of the Principal, 1207 Delaware Ave, Suite 103, Wilmington DE 19806, USA"
    :privacy-url "https://dwightspencer.com/privacy"
    :auto-subscribe nil
-   :confirm-subscribe nil
    :max-bounces 5
    :subscribers ((:address "dwight@example.com"
                   :subscribed-at "2026-01-01T00:00:00"
@@ -21,7 +20,6 @@
    :postal-address "Da Planet Security, c/o Office of the Principal, 1207 Delaware Ave, Suite 103, Wilmington DE 19806, USA"
    :privacy-url "https://dwightspencer.com/privacy"
    :auto-subscribe nil
-   :confirm-subscribe nil
    :max-bounces 5
    :subscribers ((:address "admin@network.org"
                   :subscribed-at "2026-01-01T00:00:00"
@@ -35,7 +33,6 @@
    :postal-address "Da Planet Security, c/o Office of the Principal, 1207 Delaware Ave, Suite 103, Wilmington DE 19806, USA"
    :privacy-url "https://dwightspencer.com/privacy"
    :auto-subscribe nil
-   :confirm-subscribe nil
    :max-bounces 5
    :subscribers ())
   (:id "mlisp-distrib"
@@ -57,6 +54,5 @@
    :postal-address "Da Planet Security, c/o Office of the Principal, 1207 Delaware Ave, Suite 103, Wilmington DE 19806, USA"
    :privacy-url "https://dwightspencer.com/privacy"
    :auto-subscribe nil
-   :confirm-subscribe nil
    :max-bounces 5
    :subscribers ())))
