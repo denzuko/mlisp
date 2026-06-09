@@ -188,6 +188,50 @@
                  (:help
                   (handle-help list-id from-addr)
                   (return-from process-message 0))
+                 (:diagnose
+                  ;; Send list health report to the requestor
+                  (let* ((lst      (find-list list-id))
+                         (ns       (list-namespace list-id))
+                         (siblings (when ns (namespace-siblings list-id)))
+                         (report
+                          (with-output-to-string (s)
+                            (format s "mlisp List Diagnosis Report~%")
+                            (format s "Generated: ~A~%~%" (iso8601-now))
+                            (dolist (target (or siblings (list lst)))
+                              (let* ((tid   (getf target :id))
+                                     (subs  (list-subscribers tid))
+                                     (noml  (count-if (lambda (r) (getf r :nomail)) subs))
+                                     (bounce-subs
+                                      (remove-if-not
+                                       (lambda (r) (> (or (getf r :bounce-count) 0) 0))
+                                       subs)))
+                                (format s "List: ~A~%" tid)
+                                (format s "  subgroup:      ~A~%" (getf target :subgroup))
+                                (format s "  drop:          ~A~%" (getf target :drop-address))
+                                (format s "  request:       ~A~%" (getf target :request-address))
+                                (format s "  subscribers:   ~A total, ~A NOMAIL~%"
+                                        (length subs) noml)
+                                (format s "  bouncing:      ~A subscriber~:P above 0 bounces~%"
+                                        (length bounce-subs))
+                                (format s "  locked:        ~A~%" (if (getf target :locked) "YES" "no"))
+                                (format s "  moderated:     ~A~%" (if (getf target :moderated) "YES" "no"))
+                                (format s "  delivery-mode: ~A~%"
+                                        (or (getf target :delivery-mode) "individual"))
+                                (format s "  max-size-kb:   ~A~%"
+                                        (or (getf target :max-message-size-kb) "unlimited"))
+                                (format s "  confirm-sub:   ~A~%"
+                                        (if (confirm-subscribe-p tid) "yes" "no"))
+                                (format s "  non-member:    ~A~%"
+                                        (or (getf target :non-member-action) "reject"))
+                                (terpri s))))))
+                    (sendmail (list from-addr) report
+                              :extra-headers
+                              (list (cons "Subject"
+                                          (format nil "Diagnosis: ~A" list-id))
+                                    (cons "From" (list-drop-address list-id))
+                                    (cons "To"   from-addr)))
+                    (audit-append (list :event :diagnose :list list-id :from from-addr)))
+                  (return-from process-message 0))
                  (:nomail
                   ;; Suspend delivery for this address across all namespace subgroups
                   (let ((ns (list-namespace list-id)))

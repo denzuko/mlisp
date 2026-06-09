@@ -278,18 +278,36 @@
                    :test #'string=)))
     (or (getf rec :bounce-count) 0)))
 
-(defun increment-bounce (list-id address)
-  "Increment bounce count for ADDRESS on LIST-ID. Returns new count."
-  (let* ((lst (find-list list-id))
-         (subs (getf lst :subscribers))
-         (rec (find (string-downcase address) subs
-                    :key (lambda (r) (string-downcase (getf r :address)))
-                    :test #'string=)))
+(defun increment-bounce (list-id address &key (hard t))
+  "Increment bounce count for ADDRESS on LIST-ID.
+   :hard nil = soft bounce (4xx) — increments :soft-bounce-count, not toward removal.
+   :hard t (default) = hard bounce (5xx) — time-windowed count.
+   Returns new hard bounce count."
+  (let* ((lst    (find-list list-id))
+         (window (* (or (getf lst :bounce-window-days) 30) 86400))
+         (now    (get-universal-time))
+         (subs   (getf lst :subscribers))
+         (rec    (find (string-downcase address) subs
+                       :key (lambda (r) (string-downcase (or (getf r :address) "")))
+                       :test #'string=)))
     (when rec
-      (let ((new-count (1+ (or (getf rec :bounce-count) 0))))
-        (setf (getf rec :bounce-count) new-count)
-        (setf (getf rec :last-bounce) (iso8601-now))
-        new-count))))
+      (if (not hard)
+          ;; Soft bounce: only count soft bounces
+          (progn
+            (setf (getf rec :soft-bounce-count)
+                  (1+ (or (getf rec :soft-bounce-count) 0)))
+            (or (getf rec :bounce-count) 0))
+          ;; Hard bounce: time-windowed reset
+          (let* ((last-at  (or (getf rec :last-bounce-at) 0))
+                 (gap      (- now last-at))
+                 (cur-cnt  (if (and (> window 0) (> gap window))
+                               0  ; outside window: reset to 0 before incrementing
+                               (or (getf rec :bounce-count) 0)))
+                 (new-cnt  (1+ cur-cnt)))
+            (setf (getf rec :bounce-count)    new-cnt)
+            (setf (getf rec :last-bounce-at)  now)
+            (setf (getf rec :last-bounce)     (iso8601-now))
+            new-cnt)))))
 
 (defun clear-bounce (list-id address)
   "Reset bounce count for ADDRESS on LIST-ID."
