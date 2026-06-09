@@ -29,7 +29,7 @@
       :description "General discussion (subscriber-writable)"
       :postal-address "Your Organization, 123 Main St, City ST 00000, USA"
       :privacy-url "https://example.com/privacy"
-      :auto-subscribe nil :max-bounces 5 :subscribers ())
+      :auto-subscribe nil :confirm-subscribe nil :max-bounces 5 :subscribers ())
      (:id "mlisp-announce"
       :subgroup :announce
       :drop-address "mlisp-announce@example.com"
@@ -37,7 +37,7 @@
       :description "Announcements (owner-post-only)"
       :postal-address "Your Organization, 123 Main St, City ST 00000, USA"
       :privacy-url "https://example.com/privacy"
-      :auto-subscribe nil :max-bounces 5 :subscribers ())
+      :auto-subscribe nil :confirm-subscribe nil :max-bounces 5 :subscribers ())
      (:id "mlisp-devel"
       :subgroup :devel
       :drop-address "mlisp-devel@example.com"
@@ -45,7 +45,7 @@
       :description "Patches and VCS traffic"
       :postal-address "Your Organization, 123 Main St, City ST 00000, USA"
       :privacy-url "https://example.com/privacy"
-      :auto-subscribe nil :max-bounces 5 :subscribers ())
+      :auto-subscribe nil :confirm-subscribe nil :max-bounces 5 :subscribers ())
      (:id "mlisp-distrib"
       :subgroup :distrib
       :drop-address "mlisp-distrib@example.com"
@@ -53,7 +53,7 @@
       :description "Binary/file attachment releases"
       :postal-address "Your Organization, 123 Main St, City ST 00000, USA"
       :privacy-url "https://example.com/privacy"
-      :auto-subscribe nil :max-bounces 5 :subscribers ())
+      :auto-subscribe nil :confirm-subscribe nil :max-bounces 5 :subscribers ())
      (:id "mlisp-request"
       :subgroup :request
       :drop-address "mlisp-request@example.com"
@@ -61,7 +61,7 @@
       :description "Admin commands (subscribe/unsubscribe/help)"
       :postal-address "Your Organization, 123 Main St, City ST 00000, USA"
       :privacy-url "https://example.com/privacy"
-      :auto-subscribe nil :max-bounces 5 :subscribers ())))
+      :auto-subscribe nil :confirm-subscribe nil :max-bounces 5 :subscribers ())))
   "Seed state written by `init` subcommand.")
 
 (defun seed-footer-template (list-id drop postal)
@@ -174,8 +174,9 @@
         (if (null subs)
             (format t "No subscribers on ~A.~%" list-id)
             (dolist (rec subs)
-              (format t "~A~%  subscribed-at: ~A~%  consent-method: ~A~%"
-                      (getf rec :address)
+              (format t "~A~:[~; [NOMAIL]~]~%  subscribed-at: ~A~%  consent-method: ~A~%"
+                      (or (getf rec :address) (format nil "hash:~A" (getf rec :address-hash)))
+                      (getf rec :nomail)
                       (getf rec :subscribed-at)
                       (getf rec :consent-method)))))
       0)))
@@ -551,6 +552,234 @@
                     (length (getf lst :subscribers)))))
       0)))
 
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Subcommand: set-nomail
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Subcommand: add-sub-batch / rm-sub-batch
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Subcommand: diagnose
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(defun cmd-diagnose (args)
+  "Usage: diagnose <list-id>
+   Print list health report to stdout."
+  (let ((list-id (first args)))
+    (unless list-id
+      (format *error-output* "mlisp-admin: diagnose requires <list-id>~%")
+      (return-from cmd-diagnose 1))
+    (mlisp:load-state)
+    (unless (mlisp:find-list list-id)
+      (format *error-output* "mlisp-admin: unknown list ~A~%" list-id)
+      (return-from cmd-diagnose 1))
+    (let ((d (mlisp:collect-diagnosis list-id)))
+      (write-string (mlisp:format-diagnosis d))
+      0)))
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Subcommand: show-pending / clear-pending
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(defun cmd-set-nomail (args)
+  (destructuring-bind (&optional list-id address flag-str &rest _) args
+    (declare (ignore _))
+    (unless (and list-id address flag-str)
+      (format *error-output* "mlisp-admin: set-nomail requires <list-id> <address> true|false~%")
+      (return-from cmd-set-nomail 1))
+    (mlisp:load-state)
+    (let ((flag (cond ((string-equal flag-str "true")  t)
+                      ((string-equal flag-str "false") nil)
+                      (t (format *error-output* "mlisp-admin: flag must be true or false~%")
+                         (return-from cmd-set-nomail 1)))))
+      (if (mlisp:set-subscriber-nomail list-id address flag)
+          (progn
+            (format t "Set ~A NOMAIL=~A on ~A~%" address flag list-id)
+            0)
+          (progn
+            (format *error-output* "mlisp-admin: ~A not found in ~A~%" address list-id)
+            1)))))
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Subcommand: lock / unlock
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(defun cmd-lock (args)
+  (let ((list-id (first args))
+        (reason  (let ((p (position "--reason" args :test #'string=)))
+                   (when p (nth (1+ p) args)))))
+    (unless list-id
+      (format *error-output* "mlisp-admin: lock requires <list-id>~%")
+      (return-from cmd-lock 1))
+    (mlisp:load-state)
+    (let ((lst (mlisp:find-list list-id)))
+      (unless lst
+        (format *error-output* "mlisp-admin: unknown list ~A~%" list-id)
+        (return-from cmd-lock 1))
+      (if (member :locked lst)
+          (setf (getf lst :locked) t)
+          (nconc lst (list :locked t)))
+      (when reason
+        (if (member :lock-reason lst)
+            (setf (getf lst :lock-reason) reason)
+            (nconc lst (list :lock-reason reason))))
+      (mlisp:save-state)
+      (format t "Locked ~A~@[ — ~A~]~%" list-id reason)
+      0)))
+
+(defun cmd-unlock (args)
+  (let ((list-id (first args)))
+    (unless list-id
+      (format *error-output* "mlisp-admin: unlock requires <list-id>~%")
+      (return-from cmd-unlock 1))
+    (mlisp:load-state)
+    (let ((lst (mlisp:find-list list-id)))
+      (unless lst
+        (format *error-output* "mlisp-admin: unknown list ~A~%" list-id)
+        (return-from cmd-unlock 1))
+      ;; Remove :locked and :lock-reason from plist
+      (let ((new-plist
+             (loop for (k v) on lst by #'cddr
+                   unless (member k '(:locked :lock-reason))
+                   nconc (list k v))))
+        ;; Replace list contents
+        (loop for (k v) on new-plist by #'cddr do
+          (setf (getf lst k) v)))
+      (remf lst :locked)
+      (mlisp:save-state)
+      (format t "Unlocked ~A~%" list-id)
+      0)))
+
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Subcommand: show-pending / clear-pending
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(defun cmd-show-pending (args)
+  (let ((list-id (first args)))
+    (unless list-id
+      (format *error-output* "mlisp-admin: show-pending requires <list-id>~%")
+      (return-from cmd-show-pending 1))
+    (mlisp:load-state)
+    (let ((entries (mlisp:pending-entries list-id)))
+      (if (null entries)
+          (format t "No pending confirmations for ~A~%" list-id)
+          (dolist (e entries)
+            (format t "~A  type=~A  pending since ~A~%"
+                    (getf e :address)
+                    (getf e :type)
+                    (getf e :created-at))))
+      0)))
+
+(defun cmd-clear-pending (args)
+  (let ((list-id (first args)))
+    (unless list-id
+      (format *error-output* "mlisp-admin: clear-pending requires <list-id>~%")
+      (return-from cmd-clear-pending 1))
+    (mlisp:load-state)
+    (let ((n (mlisp:clear-expired-pending list-id)))
+      (format t "Cleared ~A expired token~:P from ~A~%" n list-id)
+      0)))
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Subcommand: add-sub-batch / rm-sub-batch
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(defun parse-address-line (line)
+  "Parse a single address line. Supports:
+   addr@example.com
+   Name <addr@example.com>
+   Returns the email address string or nil if blank/comment."
+  (let ((trimmed (string-trim '(#\Space #\Tab #\Return #\Newline) line)))
+    (cond
+      ((= (length trimmed) 0) nil)          ; blank
+      ((char= (char trimmed 0) #\#) nil)    ; comment
+      (t
+       (let ((lt (position #\< trimmed :from-end nil))
+             (gt (position #\> trimmed :from-end t)))
+         (if (and lt gt (< lt gt))
+             ;; "Name <addr>" format
+             (string-trim '(#\Space #\Tab)
+                          (subseq trimmed (1+ lt) gt))
+             ;; bare address
+             trimmed))))))
+
+(defun cmd-add-sub-batch (args)
+  "add-sub-batch <list-id> [<file>]
+   Reads addresses from file or stdin, one per line. Skips blanks and # comments.
+   Supports 'Name <addr>' format. Idempotent."
+  (let ((list-id (first args))
+        (file    (second args)))
+    (unless list-id
+      (format *error-output* "mlisp-admin: add-sub-batch requires <list-id>~%")
+      (return-from cmd-add-sub-batch 1))
+    (mlisp:load-state)
+    (unless (mlisp:find-list list-id)
+      (format *error-output* "mlisp-admin: unknown list ~A~%" list-id)
+      (return-from cmd-add-sub-batch 1))
+    (let ((added 0) (skipped 0) (invalid 0)
+          (stream (if (and file (probe-file file))
+                      (open file :direction :input)
+                      *standard-input*)))
+      (unwind-protect
+           (loop for line = (read-line stream nil nil)
+                 while line do
+                   (let ((addr (parse-address-line line)))
+                     (cond
+                       ((null addr) nil)  ; blank or comment
+                       ((not (position #\@ addr))
+                        (format *error-output* "  skipping invalid: ~A~%" addr)
+                        (incf invalid))
+                       ((mlisp:subscriber-p list-id addr)
+                        (incf skipped))
+                       (t
+                        (mlisp:add-subscriber list-id addr)
+                        (incf added)))))
+        (when (and file (probe-file file))
+          (close stream)))
+      (mlisp:save-state)
+      (mlisp:audit-append (list :event :batch-subscribe :list list-id
+                                :added added :skipped skipped))
+      (format t "~A: added ~A, skipped ~A (already subscribed), ~A invalid~%"
+              list-id added skipped invalid)
+      0)))
+
+(defun cmd-rm-sub-batch (args)
+  "rm-sub-batch <list-id> [<file>]
+   Removes addresses from file or stdin."
+  (let ((list-id (first args))
+        (file    (second args)))
+    (unless list-id
+      (format *error-output* "mlisp-admin: rm-sub-batch requires <list-id>~%")
+      (return-from cmd-rm-sub-batch 1))
+    (mlisp:load-state)
+    (unless (mlisp:find-list list-id)
+      (format *error-output* "mlisp-admin: unknown list ~A~%" list-id)
+      (return-from cmd-rm-sub-batch 1))
+    (let ((removed 0) (not-found 0)
+          (stream (if (and file (probe-file file))
+                      (open file :direction :input)
+                      *standard-input*)))
+      (unwind-protect
+           (loop for line = (read-line stream nil nil)
+                 while line do
+                   (let ((addr (parse-address-line line)))
+                     (when addr
+                       (if (mlisp:subscriber-p list-id addr)
+                           (progn (mlisp:remove-subscriber list-id addr)
+                                  (incf removed))
+                           (incf not-found)))))
+        (when (and file (probe-file file))
+          (close stream)))
+      (mlisp:save-state)
+      (mlisp:audit-append (list :event :batch-unsubscribe :list list-id :removed removed))
+      (format t "~A: removed ~A, ~A not found~%" list-id removed not-found)
+      0)))
+
 (defun cmd-set-option (args)
   "Set a list option: set-option <list-id> <key> <value>"
   (destructuring-bind (&optional list-id key value &rest _) args
@@ -868,6 +1097,18 @@ Config resolution order:
                     ((string= subcmd "add-distrib")     (cmd-add-distrib subcmd-args))
                     ((string= subcmd "add-namespace")   (cmd-add-namespace subcmd-args))
                     ((string= subcmd "list-namespace")  (cmd-list-namespace subcmd-args))
+                    ((string= subcmd "set-nomail")      (cmd-set-nomail subcmd-args))
+                    ((string= subcmd "lock")            (cmd-lock subcmd-args))
+                    ((string= subcmd "unlock")          (cmd-unlock subcmd-args))
+                    ((string= subcmd "show-pending")    (cmd-show-pending subcmd-args))
+                    ((string= subcmd "clear-pending")   (cmd-clear-pending subcmd-args))
+                    ((string= subcmd "add-sub-batch")   (cmd-add-sub-batch subcmd-args))
+                    ((string= subcmd "rm-sub-batch")    (cmd-rm-sub-batch subcmd-args))
+                    ((string= subcmd "diagnose")         (cmd-diagnose subcmd-args))
+                    ((string= subcmd "add-sub-batch")   (cmd-add-sub-batch subcmd-args))
+                    ((string= subcmd "rm-sub-batch")    (cmd-rm-sub-batch subcmd-args))
+                    ((string= subcmd "show-pending")    (cmd-show-pending subcmd-args))
+                    ((string= subcmd "clear-pending")   (cmd-clear-pending subcmd-args))
                     (t
                      (format *error-output*
                              "mlisp-admin: unknown subcommand ~S~%" subcmd)
