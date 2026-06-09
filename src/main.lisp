@@ -50,13 +50,60 @@
            (handle-help list-id from-addr)
            0)
           (t
-           ;; 4. Request mode: reject posts
+           ;; 4a. :request subgroup — command-only regardless of --mode flag
+           (when (eq (list-subgroup list-id) :request)
+             (let ((cmd (detect-command headers body-lines)))
+               (case cmd
+                 (:subscribe
+                  ;; Route to sibling: "subscribe discuss" → mlisp-discuss
+                  (let* ((first-body (string-downcase (or (first body-lines) "")))
+                         (subj       (string-downcase (or (header-value headers "Subject") "")))
+                         (target-sg  (or
+                                      ;; "subscribe discuss" in body or subject
+                                      (dolist (sg '("discuss" "announce" "devel" "distrib"))
+                                        (when (or (search sg first-body)
+                                                  (search sg subj))
+                                          (return sg)))
+                                      "discuss"))
+                         (ns         (list-namespace list-id))
+                         (target-id  (when ns (format nil "~A-~A" ns target-sg))))
+                    (if (and target-id (find-list target-id))
+                        (handle-subscribe target-id from-addr)
+                        (handle-subscribe list-id from-addr)))
+                  (return-from process-message 0))
+                 (:unsubscribe
+                  ;; Unsubscribe from all namespace subgroups
+                  (let ((ns (list-namespace list-id)))
+                    (when ns
+                      (dolist (sibling (namespace-siblings list-id))
+                        (remove-subscriber (getf sibling :id) from-addr)))
+                    (save-state)
+                    (audit-append (list :event :unsubscribe :list list-id
+                                        :address from-addr)))
+                  (return-from process-message 0))
+                 (:help
+                  (handle-help list-id from-addr)
+                  (return-from process-message 0))
+                 (t
+                  (format *error-output*
+                          "mlisp: ~A is command-only; no posts accepted~%" list-id)
+                  (record-metric list-id :request-reject)
+                  (return-from process-message 1)))))
+           ;; 4b. --mode request flag
            (when (eq *process-mode* :request)
              (format *error-output*
                      "mlisp: --mode request: posts not accepted on ~A; use list address~%"
                      list-id)
              (record-metric list-id :request-reject)
              (return-from process-message 1))
+           ;; 4c. :announce subgroup — owner-post-only
+           (when (list-announce-p list-id)
+             (unless (owner-post-p list-id from-addr)
+               (format *error-output*
+                       "mlisp: ~A is announce-only; post rejected from ~A~%"
+                       list-id from-addr)
+               (record-metric list-id :announce-reject)
+               (return-from process-message 1)))
            ;; 5. Exploder bypass: relay lists don't check per-list subscription
            (when (list-exploder-p list-id)
              (distribute-exploder list-id from-addr headers body-lines)
@@ -80,10 +127,14 @@
                (record-metric list-id :gpg-rejected)
                (return-from process-message 1)))
            ;; 8. Subscriber authorization
-           (if (funcall (if (list-hash-contacts-p list-id)
+           (if (or
+                ;; Owner bypass for announce lists
+                (and (list-announce-p list-id) (owner-post-p list-id from-addr))
+                ;; Normal subscriber check
+                (funcall (if (list-hash-contacts-p list-id)
                              #'subscriber-p-hashed
                              #'subscriber-p)
-                           list-id from-addr)
+                         list-id from-addr))
                (let* ((msg-id (message-id headers body-lines)))
                  ;; 7. Dedup check
                  (when (duplicate-p list-id msg-id)

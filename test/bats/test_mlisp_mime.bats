@@ -40,7 +40,7 @@ Content-Type: text/html; charset=utf-8
 
 --b123--
 MSG
-    "${MLISP_BIN}" discuss < "${SCRATCH}/msg.eml"
+    "${MLISP_BIN}" mlisp-discuss < "${SCRATCH}/msg.eml"
     grep -q "plain text body" "${SCRATCH}/var/outbound.eml"
 }
 
@@ -63,7 +63,7 @@ Content-Type: text/html; charset=utf-8
 
 --b123--
 MSG
-    "${MLISP_BIN}" discuss < "${SCRATCH}/msg.eml"
+    "${MLISP_BIN}" mlisp-discuss < "${SCRATCH}/msg.eml"
     run grep "<html>" "${SCRATCH}/var/outbound.eml"
     [ "$status" -ne 0 ]
 }
@@ -79,7 +79,7 @@ Content-Type: text/html; charset=utf-8
 
 <html><body><p>Hello <b>world</b> from Outlook.</p></body></html>
 MSG
-    "${MLISP_BIN}" discuss < "${SCRATCH}/msg.eml"
+    "${MLISP_BIN}" mlisp-discuss < "${SCRATCH}/msg.eml"
     grep -q "Hello" "${SCRATCH}/var/outbound.eml"
     grep -q "world" "${SCRATCH}/var/outbound.eml"
     run grep "<html>" "${SCRATCH}/var/outbound.eml"
@@ -94,7 +94,7 @@ Content-Type: text/html; charset=utf-8
 
 <p>Security &amp; Privacy &lt;notes&gt;</p>
 MSG
-    "${MLISP_BIN}" discuss < "${SCRATCH}/msg.eml"
+    "${MLISP_BIN}" mlisp-discuss < "${SCRATCH}/msg.eml"
     grep -q "&" "${SCRATCH}/var/outbound.eml"
 }
 
@@ -102,7 +102,7 @@ MSG
 
 @test "MIME-5 plain text/plain message passes through unchanged" {
     printf 'From: dwight@example.com\r\nSubject: plain\r\n\r\nJust plain text here.\r\n' \
-      | "${MLISP_BIN}" discuss
+      | "${MLISP_BIN}" mlisp-discuss
     grep -q "Just plain text here" "${SCRATCH}/var/outbound.eml"
 }
 
@@ -116,7 +116,7 @@ Content-Type: text/html; charset=utf-8
 
 <p>Hello</p>
 MSG
-    "${MLISP_BIN}" discuss < "${SCRATCH}/msg.eml"
+    "${MLISP_BIN}" mlisp-discuss < "${SCRATCH}/msg.eml"
     # Outbound should not contain HTML Content-Type
     run grep -i "Content-Type: text/html" "${SCRATCH}/var/outbound.eml"
     [ "$status" -ne 0 ]
@@ -127,7 +127,7 @@ MSG
 @test "MIME-7 loop detection works on multipart message" {
     cat > "${SCRATCH}/msg.eml" << 'MSG'
 From: dwight@example.com
-X-Loop-List-Discuss: 1
+X-Loop-List-Mlisp-Discuss: 1
 Subject: loop
 MIME-Version: 1.0
 Content-Type: multipart/alternative; boundary="b123"
@@ -139,7 +139,7 @@ body
 
 --b123--
 MSG
-    run "${MLISP_BIN}" discuss < "${SCRATCH}/msg.eml"
+    run "${MLISP_BIN}" mlisp-discuss < "${SCRATCH}/msg.eml"
     [ "$status" -eq 0 ]
     # No outbound mail should have been sent
     [ ! -s "${SCRATCH}/var/outbound.eml" ]

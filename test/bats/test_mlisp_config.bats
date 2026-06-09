@@ -58,7 +58,7 @@ teardown() {
 @test "CFG-4 mlisp --home flag uses specified dir for state" {
     # With --home pointing at SCRATCH, mlisp should read SCRATCH/state/state.sexp
     run bash -c "printf 'From: dwight@example.com\r\nSubject: help\r\n\r\nhelp\r\n' \
-      | '${MLISP_BIN}' --home '${SCRATCH}' discuss"
+      | '${MLISP_BIN}' --home '${SCRATCH}' mlisp-discuss"
     [ "$status" -eq 0 ]
 }
 
@@ -74,7 +74,7 @@ teardown() {
     EMPTY="$(mktemp -d)"
     mkdir -p "${EMPTY}/state" "${EMPTY}/templates"
     run bash -c "printf 'From: dwight@example.com\r\nSubject: help\r\n\r\nhelp\r\n' \
-      | MLISP_HOME='${EMPTY}' '${MLISP_BIN}' --home '${SCRATCH}' discuss"
+      | MLISP_HOME='${EMPTY}' '${MLISP_BIN}' --home '${SCRATCH}' mlisp-discuss"
     [ "$status" -eq 0 ]
     rm -rf "${EMPTY}"
 }
@@ -91,7 +91,7 @@ teardown() {
       | XDG_CONFIG_HOME='${XDG_DIR}' \
         MLISP_SENDMAIL='${SCRATCH}/bin/sendmail' \
         HOME='${FAKE_HOME}' \
-        '${MLISP_BIN}' discuss"
+        '${MLISP_BIN}' mlisp-discuss"
     [ "$status" -eq 0 ]
 }
 
@@ -107,7 +107,7 @@ teardown() {
       | env -i HOME='${FAKE_HOME}' \
               MLISP_SENDMAIL='${SCRATCH}/bin/sendmail' \
               PATH='${PATH}' \
-              '${MLISP_BIN}' discuss"
+              '${MLISP_BIN}' mlisp-discuss"
     [ "$status" -eq 0 ]
 }
 
@@ -143,7 +143,7 @@ teardown() {
     NEWDIR="${SCRATCH}/newconfig2"
     run "${ADMIN_BIN}" init --dir "${NEWDIR}"
     [ -d "${NEWDIR}/templates" ]
-    [ -f "${NEWDIR}/templates/discuss.welcome.sexp" ]
+    [ -f "${NEWDIR}/templates/mlisp-discuss.welcome.sexp" ]
 }
 
 @test "CFG-14 mlisp-admin init is idempotent (safe to run twice)" {
@@ -158,9 +158,9 @@ teardown() {
 @test "CFG-15 mlisp-admin list-lists prints all list IDs" {
     run "${ADMIN_BIN}" --home "${SCRATCH}" list-lists
     [ "$status" -eq 0 ]
-    [[ "$output" == *"discuss"* ]]
-    [[ "$output" == *"announce"* ]]
-    [[ "$output" == *"devel"* ]]
+    [[ "$output" == *"mlisp-discuss"* ]]
+    [[ "$output" == *"mlisp-announce"* ]]
+    [[ "$output" == *"mlisp-devel"* ]]
 }
 
 @test "CFG-16 mlisp-admin list-lists prints drop addresses" {
@@ -171,13 +171,13 @@ teardown() {
 # ── mlisp-admin list-subs ─────────────────────────────────────────────────────
 
 @test "CFG-17 mlisp-admin list-subs prints subscriber addresses" {
-    run "${ADMIN_BIN}" --home "${SCRATCH}" list-subs discuss
+    run "${ADMIN_BIN}" --home "${SCRATCH}" list-subs mlisp-discuss
     [ "$status" -eq 0 ]
     [[ "$output" == *"dwight@example.com"* ]]
 }
 
 @test "CFG-18 mlisp-admin list-subs prints consent timestamps" {
-    run "${ADMIN_BIN}" --home "${SCRATCH}" list-subs discuss
+    run "${ADMIN_BIN}" --home "${SCRATCH}" list-subs mlisp-discuss
     [[ "$output" == *"subscribed-at"* ]]
 }
 
@@ -189,24 +189,24 @@ teardown() {
 # ── mlisp-admin add-sub ───────────────────────────────────────────────────────
 
 @test "CFG-20 mlisp-admin add-sub adds address to state.sexp" {
-    run "${ADMIN_BIN}" --home "${SCRATCH}" add-sub devel newguy@example.com
+    run "${ADMIN_BIN}" --home "${SCRATCH}" add-sub mlisp-devel newguy@example.com
     [ "$status" -eq 0 ]
     grep -q "newguy@example.com" "${SCRATCH}/state/state.sexp"
 }
 
 @test "CFG-21 mlisp-admin add-sub records consent-method as admin-add" {
-    "${ADMIN_BIN}" --home "${SCRATCH}" add-sub devel admin@example.com
+    "${ADMIN_BIN}" --home "${SCRATCH}" add-sub mlisp-devel admin@example.com
     grep -q "admin-add" "${SCRATCH}/state/state.sexp"
 }
 
 @test "CFG-22 mlisp-admin add-sub writes audit event" {
-    "${ADMIN_BIN}" --home "${SCRATCH}" add-sub devel audit@example.com
+    "${ADMIN_BIN}" --home "${SCRATCH}" add-sub mlisp-devel audit@example.com
     [ -f "${SCRATCH}/state/audit.sexp" ]
     grep -q ":event :subscribe" "${SCRATCH}/state/audit.sexp"
 }
 
 @test "CFG-23 mlisp-admin add-sub is idempotent" {
-    "${ADMIN_BIN}" --home "${SCRATCH}" add-sub discuss dwight@example.com
+    "${ADMIN_BIN}" --home "${SCRATCH}" add-sub mlisp-discuss dwight@example.com
     count=$(grep -c "dwight@example.com" "${SCRATCH}/state/state.sexp")
     [ "$count" -eq 1 ]
 }
@@ -214,19 +214,19 @@ teardown() {
 # ── mlisp-admin rm-sub ────────────────────────────────────────────────────────
 
 @test "CFG-24 mlisp-admin rm-sub removes address from state.sexp" {
-    run "${ADMIN_BIN}" --home "${SCRATCH}" rm-sub discuss dwight@example.com
+    run "${ADMIN_BIN}" --home "${SCRATCH}" rm-sub mlisp-discuss dwight@example.com
     [ "$status" -eq 0 ]
     run grep "dwight@example.com" "${SCRATCH}/state/state.sexp"
     [ "$status" -ne 0 ]
 }
 
 @test "CFG-25 mlisp-admin rm-sub writes erasure audit event" {
-    "${ADMIN_BIN}" --home "${SCRATCH}" rm-sub discuss dwight@example.com
+    "${ADMIN_BIN}" --home "${SCRATCH}" rm-sub mlisp-discuss dwight@example.com
     grep -q ":event :unsubscribe" "${SCRATCH}/state/audit.sexp"
 }
 
 @test "CFG-26 mlisp-admin rm-sub on non-member exits 0 (no-op)" {
-    run "${ADMIN_BIN}" --home "${SCRATCH}" rm-sub discuss nobody@example.com
+    run "${ADMIN_BIN}" --home "${SCRATCH}" rm-sub mlisp-discuss nobody@example.com
     [ "$status" -eq 0 ]
 }
 

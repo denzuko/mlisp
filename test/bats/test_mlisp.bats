@@ -67,19 +67,19 @@ run_mlisp() {
 # ── State and template files ─────────────────────────────────────────────────
 
 @test "state.sexp contains correct drop address for discuss" {
-    grep -q "denzuko+mlist-discuss@panix.com" "${SCRATCH}/state/state.sexp"
+    grep -q "mlisp-discuss@panix.com" "${SCRATCH}/state/state.sexp"
 }
 
 @test "state.sexp contains correct drop address for announce" {
-    grep -q "denzuko+mlist-announce@panix.com" "${SCRATCH}/state/state.sexp"
+    grep -q "mlisp-announce@panix.com" "${SCRATCH}/state/state.sexp"
 }
 
 @test "state.sexp contains correct drop address for devel" {
-    grep -q "denzuko+mlist-devel@panix.com" "${SCRATCH}/state/state.sexp"
+    grep -q "mlisp-devel@panix.com" "${SCRATCH}/state/state.sexp"
 }
 
 @test "all nine template sexp files exist" {
-    for list in discuss announce devel; do
+    for list in mlisp-discuss mlisp-announce mlisp-devel; do
         for tpl in welcome help goodbye; do
             [ -f "${SCRATCH}/templates/${list}.${tpl}.sexp" ]
         done
@@ -96,25 +96,25 @@ run_mlisp() {
 
 # ── Loop detection ───────────────────────────────────────────────────────────
 
-@test "drops message and exits 0 when X-Loop-List-Discuss header present" {
+@test "drops message and exits 0 when X-Loop-List-Mlisp-Discuss header present" {
     email=$(raw_email "dwight@example.com" "Test" \
-                      "X-Loop-List-Discuss: 1" "body")
-    run bash -c "printf '%s' '${email}' | '${MLISP_BIN}' discuss"
+                      "X-Loop-List-Mlisp-Discuss: 1" "body")
+    run bash -c "printf '%s' '${email}' | '${MLISP_BIN}' mlisp-discuss"
     [ "$status" -eq 0 ]
 }
 
-@test "drops message and exits 0 when X-Loop-List-Announce header present" {
+@test "drops message and exits 0 when X-Loop-List-Mlisp-Announce header present" {
     email=$(raw_email "admin@network.org" "Announcement" \
-                      "X-Loop-List-Announce: 1" "body")
-    run bash -c "printf '%s' '${email}' | '${MLISP_BIN}' announce"
+                      "X-Loop-List-Mlisp-Announce: 1" "body")
+    run bash -c "printf '%s' '${email}' | '${MLISP_BIN}' mlisp-announce"
     [ "$status" -eq 0 ]
 }
 
 @test "wrong loop header does not suppress processing on discuss" {
-    # X-Loop-List-Announce must NOT block a discuss submission
+    # X-Loop-List-Mlisp-Announce must NOT block a discuss submission
     email=$(raw_email "dwight@example.com" "Valid discuss post" \
-                      "X-Loop-List-Announce: 1" "legitimate body")
-    run bash -c "printf '%s' '${email}' | '${MLISP_BIN}' discuss"
+                      "X-Loop-List-Mlisp-Announce: 1" "legitimate body")
+    run bash -c "printf '%s' '${email}' | '${MLISP_BIN}' mlisp-discuss"
     # exit 0 (delivered) or 2 (sendmail stub path issue) — NOT 1 (rejected)
     [ "$status" -ne 1 ]
 }
@@ -131,7 +131,7 @@ run_mlisp() {
 
 @test "rejects unsubscribed sender on devel (exit 1 or 2)" {
     email=$(raw_email "spammer@badactor.net" "Buy cheap meds" "body")
-    run bash -c "printf '%s' '${email}' | '${MLISP_BIN}' devel"
+    run bash -c "printf '%s' '${email}' | '${MLISP_BIN}' mlisp-devel"
     # 1 = rejected (sendmail succeeded); 2 = rejected (sendmail binary missing)
     [ "$status" -ge 1 ]
     [ "$status" -le 2 ]
@@ -139,7 +139,7 @@ run_mlisp() {
 
 @test "rejection path does not exit 0 for unsubscribed sender" {
     email=$(raw_email "outsider@unknown.org" "Hello" "body")
-    run bash -c "printf '%s' '${email}' | '${MLISP_BIN}' discuss"
+    run bash -c "printf '%s' '${email}' | '${MLISP_BIN}' mlisp-discuss"
     [ "$status" -ne 0 ]
 }
 
@@ -147,21 +147,21 @@ run_mlisp() {
 
 @test "subscribe command adds new address to devel state.sexp" {
     email=$(raw_email "janet@example.com" "subscribe" "subscribe")
-    run bash -c "printf '%s' '${email}' | '${MLISP_BIN}' devel"
+    run bash -c "printf '%s' '${email}' | '${MLISP_BIN}' mlisp-devel"
     # exit 0 or 2 (sendmail); state must be updated
     grep -q "janet@example.com" "${SCRATCH}/state/state.sexp"
 }
 
 @test "subscribe command is idempotent for existing subscriber" {
     email=$(raw_email "dwight@example.com" "subscribe" "subscribe")
-    run bash -c "printf '%s' '${email}' | '${MLISP_BIN}' discuss"
+    run bash -c "printf '%s' '${email}' | '${MLISP_BIN}' mlisp-discuss"
     count=$(grep -c "dwight@example.com" "${SCRATCH}/state/state.sexp")
     [ "$count" -eq 1 ]
 }
 
 @test "subscribe detected from body when subject is neutral" {
     email=$(raw_email "newuser@example.com" "hello" "subscribe")
-    run bash -c "printf '%s' '${email}' | '${MLISP_BIN}' devel"
+    run bash -c "printf '%s' '${email}' | '${MLISP_BIN}' mlisp-devel"
     grep -q "newuser@example.com" "${SCRATCH}/state/state.sexp"
 }
 
@@ -169,7 +169,7 @@ run_mlisp() {
 
 @test "unsubscribe command removes address from discuss state.sexp" {
     email=$(raw_email "dwight@example.com" "unsubscribe" "unsubscribe")
-    run bash -c "printf '%s' '${email}' | '${MLISP_BIN}' discuss"
+    run bash -c "printf '%s' '${email}' | '${MLISP_BIN}' mlisp-discuss"
     run grep "dwight@example.com" "${SCRATCH}/state/state.sexp"
     [ "$status" -ne 0 ]
 }
@@ -178,21 +178,21 @@ run_mlisp() {
 
 @test "help command exits 0 or 2 for known subscriber" {
     email=$(raw_email "dwight@example.com" "help" "help")
-    run bash -c "printf '%s' '${email}' | '${MLISP_BIN}' discuss"
+    run bash -c "printf '%s' '${email}' | '${MLISP_BIN}' mlisp-discuss"
     [ "$status" -le 2 ]
 }
 
 @test "help command exits 0 or 2 for non-subscriber (info-only)" {
     email=$(raw_email "curious@stranger.net" "help" "help")
-    run bash -c "printf '%s' '${email}' | '${MLISP_BIN}' discuss"
+    run bash -c "printf '%s' '${email}' | '${MLISP_BIN}' mlisp-discuss"
     [ "$status" -le 2 ]
 }
 
 # ── Loop header naming ────────────────────────────────────────────────────────
 
-@test "X-Loop-List-Devel header triggers loop drop on devel list" {
+@test "X-Loop-List-Mlisp-Devel header triggers loop drop on devel list" {
     email=$(raw_email "dwight@example.com" "Post" \
-                      "X-Loop-List-Devel: 1" "body")
-    run bash -c "printf '%s' '${email}' | '${MLISP_BIN}' devel"
+                      "X-Loop-List-Mlisp-Devel: 1" "body")
+    run bash -c "printf '%s' '${email}' | '${MLISP_BIN}' mlisp-devel"
     [ "$status" -eq 0 ]
 }

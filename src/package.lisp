@@ -78,6 +78,14 @@
    #:list-require-signed-p
    #:list-gpg-key-id
    #:gpg-verify
+   ;; Namespace-subgroup model
+   #:list-subgroup
+   #:list-namespace
+   #:namespace-siblings
+   #:list-announce-p
+   #:list-owner-address
+   #:owner-post-p
+   #:*known-subgroups*
    ;; Daemon discrimination
    #:daemon-message-p
    #:daemon-drop-reason

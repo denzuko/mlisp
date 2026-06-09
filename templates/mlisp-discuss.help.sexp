@@ -1,0 +1,12 @@
+(:document
+ (:title "DISCUSS Mailing List -- Help")
+ (:author "denzuko+mlist-discuss@panix.com")
+ (:abstract "Command reference for the discuss mailing list.")
+ (:section "Available Commands")
+ (:pp "Send email to denzuko+mlist-discuss@panix.com with one of the following in the Subject or first body line:")
+ (:p "  subscribe    -- join the discuss list")
+ (:p "  unsubscribe  -- leave the discuss list")
+ (:p "  help         -- receive this help message")
+ (:section "Posting")
+ (:pp "Subscribers may post directly to denzuko+mlist-discuss@panix.com.")
+ (:raw ".br"))

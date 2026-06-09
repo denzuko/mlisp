@@ -1,0 +1,12 @@
+(:document
+ (:title "DEVEL Mailing List -- Help")
+ (:author "denzuko+mlist-devel@panix.com")
+ (:abstract "Command reference for the devel mailing list.")
+ (:section "Available Commands")
+ (:pp "Send email to denzuko+mlist-devel@panix.com with one of the following in the Subject or first body line:")
+ (:p "  subscribe    -- join the devel list")
+ (:p "  unsubscribe  -- leave the devel list")
+ (:p "  help         -- receive this help message")
+ (:section "Posting")
+ (:pp "Subscribers may post directly to denzuko+mlist-devel@panix.com.")
+ (:raw ".br"))

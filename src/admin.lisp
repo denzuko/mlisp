@@ -22,24 +22,46 @@
 
 (defparameter *seed-state*
   '(:lists
-    ((:id "discuss"
-      :drop-address "user+mlist-discuss@example.com"
-      :description "General discussion list"
+    ((:id "mlisp-discuss"
+      :subgroup :discuss
+      :drop-address "mlisp-discuss@example.com"
+      :request-address "mlisp-request@example.com"
+      :description "General discussion (subscriber-writable)"
       :postal-address "Your Organization, 123 Main St, City ST 00000, USA"
       :privacy-url "https://example.com/privacy"
-      :subscribers ())
-     (:id "announce"
-      :drop-address "user+mlist-announce@example.com"
-      :description "Announcements list"
+      :auto-subscribe nil :max-bounces 5 :subscribers ())
+     (:id "mlisp-announce"
+      :subgroup :announce
+      :drop-address "mlisp-announce@example.com"
+      :request-address "mlisp-request@example.com"
+      :description "Announcements (owner-post-only)"
       :postal-address "Your Organization, 123 Main St, City ST 00000, USA"
       :privacy-url "https://example.com/privacy"
-      :subscribers ())
-     (:id "devel"
-      :drop-address "user+mlist-devel@example.com"
-      :description "Development list"
+      :auto-subscribe nil :max-bounces 5 :subscribers ())
+     (:id "mlisp-devel"
+      :subgroup :devel
+      :drop-address "mlisp-devel@example.com"
+      :request-address "mlisp-request@example.com"
+      :description "Patches and VCS traffic"
       :postal-address "Your Organization, 123 Main St, City ST 00000, USA"
       :privacy-url "https://example.com/privacy"
-      :subscribers ())))
+      :auto-subscribe nil :max-bounces 5 :subscribers ())
+     (:id "mlisp-distrib"
+      :subgroup :distrib
+      :drop-address "mlisp-distrib@example.com"
+      :request-address "mlisp-request@example.com"
+      :description "Binary/file attachment releases"
+      :postal-address "Your Organization, 123 Main St, City ST 00000, USA"
+      :privacy-url "https://example.com/privacy"
+      :auto-subscribe nil :max-bounces 5 :subscribers ())
+     (:id "mlisp-request"
+      :subgroup :request
+      :drop-address "mlisp-request@example.com"
+      :request-address "mlisp-request@example.com"
+      :description "Admin commands (subscribe/unsubscribe/help)"
+      :postal-address "Your Organization, 123 Main St, City ST 00000, USA"
+      :privacy-url "https://example.com/privacy"
+      :auto-subscribe nil :max-bounces 5 :subscribers ())))
   "Seed state written by `init` subcommand.")
 
 (defun seed-footer-template (list-id drop postal)
@@ -272,29 +294,47 @@
 
 (defun procmail-recipe (list-id drop-address mlisp-bin home-dir)
   "Return a procmail recipe string for LIST-ID.
-   Includes FROM_DAEMON guard, Precedence guard, idempotency marker."
-  (format nil
+   Includes FROM_DAEMON guard, Precedence guard, idempotency marker.
+   For :request subgroup: command-only recipe (no -request sibling).
+   For other subgroups: list recipe + -request sibling recipe."
+  (let* ((sg       (mlisp:list-subgroup list-id))
+         (is-req   (eq sg :request))
+         (at-pos   (position #\@ drop-address))
+         (local    (if at-pos (subseq drop-address 0 at-pos) drop-address))
+         (domain   (if at-pos (subseq drop-address at-pos) ""))
+         (req-drop (concatenate 'string local "-request" domain))
+         ;; For --mode request: use the -request sibling address for matching
+         ;; For :request lists: use --mode request directly
+         (mode-arg (if is-req "--mode request " "")))
+    (if is-req
+        ;; :request subgroup: single recipe, command-only
+        (format nil
 "# mlisp: ~A
 :0
 * !^FROM_DAEMON
 * !^FROM_MAILER
 * !^Precedence: (bulk|junk|list)
 * ^^TO_~A
-| ~A --home ~A ~A
+| ~A --home ~A --mode request ~A
+"
+                list-id drop-address mlisp-bin home-dir list-id)
+        ;; Other subgroups: list recipe + -request sibling
+        (format nil
+"# mlisp: ~A
+:0
+* !^FROM_DAEMON
+* !^FROM_MAILER
+* !^Precedence: (bulk|junk|list)
+* ^^TO_~A
+| ~A --home ~A ~A~A
 
 # mlisp: ~A-request
 :0
 * ^^TO_~A
 | ~A --home ~A --mode request ~A
 "
-          list-id drop-address mlisp-bin home-dir list-id
-          list-id
-          ;; derive request address local-part for TO_ match
-          (let* ((at (position #\@ drop-address))
-                 (local (if at (subseq drop-address 0 at) drop-address))
-                 (domain (if at (subseq drop-address at) "")))
-            (concatenate 'string local "-request" domain))
-          mlisp-bin home-dir list-id))
+                list-id drop-address mlisp-bin home-dir mode-arg list-id
+                list-id req-drop mlisp-bin home-dir list-id))))
 
 (defun procmailrc-has-list-p (path list-id)
   "Return T if PATH already contains a mlisp recipe for LIST-ID."
@@ -395,6 +435,121 @@
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Subcommand: set-option
 ;;; ─────────────────────────────────────────────────────────────────────────────
+
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Subcommand: add-namespace
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(defparameter *default-subgroups*
+  '((:discuss  "subscriber-writable general discussion")
+    (:announce "owner-post-only notifications")
+    (:devel    "patches and VCS traffic")
+    (:distrib  "binary/file attachment releases")
+    (:request  "admin commands (subscribe/unsubscribe/help)"))
+  "Default subgroups created by add-namespace.")
+
+(defun cmd-add-namespace (args)
+  "Create all subgroup list records for a namespace.
+   Usage: add-namespace <name> <base-address> [--subgroups sg1,sg2,...]
+   Example: add-namespace mlisp mlisp@panix.com
+   Creates: mlisp-discuss, mlisp-announce, mlisp-devel, mlisp-distrib, mlisp-request"
+  (let ((name     (first args))
+        (base     (second args))
+        (rest-args (cddr args)))
+    (unless (and name base)
+      (format *error-output*
+              "mlisp-admin: add-namespace requires <name> <base-address>~%")
+      (return-from cmd-add-namespace 1))
+    (mlisp:load-state)
+    ;; Parse --subgroups flag
+    (let* ((sg-filter
+            (let ((pos (position "--subgroups" rest-args :test #'string=)))
+              (when (and pos (nth (1+ pos) rest-args))
+                (let* ((raw    (nth (1+ pos) rest-args))
+                       (result (list))
+                       (cur    ""))
+                  (dolist (c (coerce raw (quote list)))
+                    (if (char= c #\,)
+                        (let ((s (string-trim " " cur)))
+                          (when (> (length s) 0)
+                            (push (intern (string-upcase s) :keyword) result))
+                          (setf cur ""))
+                        (setf cur (concatenate (quote string) cur (string c)))))
+                  (let ((s (string-trim " " cur)))
+                    (when (> (length s) 0)
+                      (push (intern (string-upcase s) :keyword) result)))
+                  (nreverse result)))))
+           (subgroups (if sg-filter
+                          (remove-if-not
+                           (lambda (entry)
+                             (member (first entry) sg-filter))
+                           *default-subgroups*)
+                          *default-subgroups*))
+           ;; Derive request address from base: foo@host → foo-request@host
+           (at-pos  (position #\@ base))
+           (local   (if at-pos (subseq base 0 at-pos) base))
+           (domain  (if at-pos (subseq base at-pos) ""))
+           (req-addr (concatenate 'string local "-request" domain)))
+      (dolist (sg-entry subgroups)
+        (let* ((sg      (first sg-entry))
+               (sg-name (string-downcase (symbol-name sg)))
+               (id      (format nil "~A-~A" name sg-name))
+               (drop    (concatenate 'string local "-" sg-name domain)))
+          ;; Skip if already exists
+          (unless (mlisp:find-list id)
+            (let ((new-list
+                   (list :id id
+                         :subgroup sg
+                         :drop-address drop
+                         :request-address req-addr
+                         :description (format nil "~A ~A" name (second sg-entry))
+                         :postal-address
+                         (or (mlisp:list-postal-address "mlisp-discuss")
+                             (mlisp:list-postal-address (caar (getf mlisp:*state* :lists)))
+                             "")
+                         :privacy-url
+                         (or (mlisp:list-privacy-url "mlisp-discuss")
+                             (mlisp:list-privacy-url (caar (getf mlisp:*state* :lists)))
+                             "")
+                         :auto-subscribe nil
+                         :max-bounces 5
+                         :subscribers '())))
+              (setf (getf mlisp:*state* :lists)
+                    (append (getf mlisp:*state* :lists) (list new-list)))
+              (format t "Created ~A -> ~A~%" id drop)))))
+      (mlisp:save-state)
+      0)))
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Subcommand: list-namespace
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(defun cmd-list-namespace (args)
+  "Show all subgroups for a namespace prefix.
+   Usage: list-namespace <name>"
+  (let ((ns (first args)))
+    (unless ns
+      (format *error-output* "mlisp-admin: list-namespace requires <name>~%")
+      (return-from cmd-list-namespace 1))
+    (mlisp:load-state)
+    (let ((siblings (remove-if-not
+                     (lambda (lst)
+                       (let ((ns2 (mlisp:list-namespace (getf lst :id))))
+                         (and ns2 (string= ns2 (string-downcase ns)))))
+                     (getf mlisp:*state* :lists))))
+      (if (null siblings)
+          (progn
+            (format *error-output* "mlisp-admin: no lists found for namespace ~A~%" ns)
+            (return-from cmd-list-namespace 1))
+          (dolist (lst siblings)
+            (format t "~A~%  subgroup:  :~A~%  drop:      ~A~%  request:   ~A~%  subs:      ~A~%"
+                    (getf lst :id)
+                    (string-downcase (symbol-name (or (getf lst :subgroup) :unknown)))
+                    (getf lst :drop-address)
+                    (getf lst :request-address)
+                    (length (getf lst :subscribers)))))
+      0)))
 
 (defun cmd-set-option (args)
   "Set a list option: set-option <list-id> <key> <value>"
@@ -711,6 +866,8 @@ Config resolution order:
                     ((string= subcmd "add-exploder")    (cmd-add-exploder subcmd-args))
                     ((string= subcmd "flush-digest")    (cmd-flush-digest subcmd-args))
                     ((string= subcmd "add-distrib")     (cmd-add-distrib subcmd-args))
+                    ((string= subcmd "add-namespace")   (cmd-add-namespace subcmd-args))
+                    ((string= subcmd "list-namespace")  (cmd-list-namespace subcmd-args))
                     (t
                      (format *error-output*
                              "mlisp-admin: unknown subcommand ~S~%" subcmd)

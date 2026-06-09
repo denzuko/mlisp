@@ -1,21 +1,44 @@
-# mlisp procmail recipes
+# mlisp procmail recipes — namespace-subgroup convention
 # Generated sample — copy or append to ~/.procmailrc
 #
-# Replace /usr/local/bin/mlisp and /home/user/.config/mlisp with your paths.
+# Replace mlisp@panix.com with your actual base address.
 # To install automatically:
-#   mlisp-admin install-procmail [--list <id>] [--dry-run]
+#   mlisp-admin install-procmail [--dry-run]
+#   mlisp-admin add-namespace myproject myproject@example.com
 
-# mlisp: discuss
+# mlisp: mlisp-discuss
 :0
-* ^TO_denzuko+mlist-discuss@panix.com
-| /usr/local/bin/mlisp --home /home/user/.config/mlisp discuss
+* !^FROM_DAEMON
+* !^FROM_MAILER
+* !^Precedence: (bulk|junk|list)
+* ^TO_mlisp-discuss@panix.com
+| /usr/local/bin/mlisp --home /home/user/.config/mlisp mlisp-discuss
 
-# mlisp: announce
+# mlisp: mlisp-discuss-request
 :0
-* ^TO_denzuko+mlist-announce@panix.com
-| /usr/local/bin/mlisp --home /home/user/.config/mlisp announce
+* ^TO_mlisp-request@panix.com
+| /usr/local/bin/mlisp --home /home/user/.config/mlisp --mode request mlisp-request
 
-# mlisp: devel
+# mlisp: mlisp-announce
 :0
-* ^TO_denzuko+mlist-devel@panix.com
-| /usr/local/bin/mlisp --home /home/user/.config/mlisp devel
+* !^FROM_DAEMON
+* !^FROM_MAILER
+* !^Precedence: (bulk|junk|list)
+* ^TO_mlisp-announce@panix.com
+| /usr/local/bin/mlisp --home /home/user/.config/mlisp mlisp-announce
+
+# mlisp: mlisp-devel
+:0
+* !^FROM_DAEMON
+* !^FROM_MAILER
+* !^Precedence: (bulk|junk|list)
+* ^TO_mlisp-devel@panix.com
+| /usr/local/bin/mlisp --home /home/user/.config/mlisp mlisp-devel
+
+# mlisp: mlisp-distrib
+:0
+* !^FROM_DAEMON
+* !^FROM_MAILER
+* !^Precedence: (bulk|junk|list)
+* ^TO_mlisp-distrib@panix.com
+| /usr/local/bin/mlisp --home /home/user/.config/mlisp mlisp-distrib
