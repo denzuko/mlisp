@@ -6,7 +6,7 @@
 ;;; Command detection (Subject / body first line)
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
-(defparameter *known-commands* '("subscribe" "unsubscribe" "help")
+(defparameter *known-commands* '("subscribe" "unsubscribe" "help" "nomail" "mail" "resume")
   "Administrative command keywords.")
 
 ;;; Unsubscribe synonym patterns (smartlist-compatible)
@@ -38,4 +38,10 @@
       ((or (search "help" (string-downcase subject))
            (search "help" (string-downcase first-body)))
        :help)
+      ((or (string= (string-downcase subject) "nomail")
+           (string= (string-downcase first-body) "nomail"))
+       :nomail)
+      ((or (member (string-downcase subject) '("mail" "resume") :test #'string=)
+           (member (string-downcase first-body) '("mail" "resume") :test #'string=))
+       :resume)
       (t nil))))
