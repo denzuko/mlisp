@@ -287,3 +287,44 @@
          (mime-extract-text synthetic)))
       (otherwise
        (format nil "~{~A~%~}" body-lines)))))
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Attachment policy (#49)
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(defun list-attachment-policy (list-id)
+  "Return :allow (default), :strip, or :reject for LIST-ID."
+  (let ((raw (getf (find-list list-id) :attachment-policy)))
+    (cond
+      ((null raw) :allow)
+      ((eq raw :strip)  :strip)
+      ((eq raw :reject) :reject)
+      ((equal raw "strip")  :strip)
+      ((equal raw "reject") :reject)
+      (t :allow))))
+
+(defun list-allowed-mime-types (list-id)
+  "Return list of allowed MIME type prefixes for LIST-ID, or nil (= all)."
+  (getf (find-list list-id) :allowed-mime-types))
+
+(defun attachment-present-p (headers body-text)
+  "Return T if the message contains non-plain-text attachments."
+  (let ((ct (string-downcase (or (header-value headers "Content-Type") ""))))
+    (or (search "multipart/mixed" ct)
+        (search "application/" ct)
+        (search "image/" ct)
+        ;; Check body for MIME boundary markers
+        (search "Content-Disposition: attachment" body-text)
+        (search "content-disposition: attachment" (string-downcase body-text)))))
+
+(defun enforce-attachment-policy (list-id headers body-lines)
+  "Apply attachment policy for LIST-ID.
+   Returns :ok, :stripped (body-lines already processed), or :reject."
+  (let ((policy   (list-attachment-policy list-id))
+        (has-att  (attachment-present-p headers
+                                         (format nil "~{~A~%~}" body-lines))))
+    (case policy
+      (:allow  :ok)
+      (:reject (if has-att :reject :ok))
+      (:strip  :ok)  ; stripping already done by process-body-for-distribution
+      (t :ok))))

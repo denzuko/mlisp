@@ -1,0 +1,264 @@
+.TH MLISP 1 "June 2026" "mlisp 0.5" "User Commands"
+.SH NAME
+mlisp \- compiled SBCL mailing list manager (list delivery agent)
+.SH SYNOPSIS
+.B mlisp
+[\fB\-\-home\fR \fIdir\fR]
+[\fB\-\-mode\fR \fInormal\fR|\fIrequest\fR|\fIbounce\fR]
+\fIlist\-id\fR
+.SH DESCRIPTION
+.B mlisp
+reads a raw RFC 5322 message from standard input and processes it
+according to the named list's configuration.  It is invoked from a
+.BR procmail (1)
+recipe for each inbound message.
+.PP
+.B mlisp
+replaces
+.B smartlist
+and is compatible with the smartlist procmail integration pattern.
+All state is stored in plain S-expression files under
+.IR MLISP_HOME .
+.SH OPTIONS
+.TP
+.BI \-\-home " dir"
+Override the state directory.  Equivalent to setting
+.BR MLISP_HOME .
+Takes precedence over the environment variable.
+.TP
+.BI \-\-mode " mode"
+Processing mode.  One of:
+.RS
+.TP
+.B normal
+Default.  Full processing pipeline: daemon check, loop detection,
+subscriber check, distribution.
+.TP
+.B request
+Command processing mode.  Parses subscribe, unsubscribe, help,
+nomail, resume, confirm, diagnose commands from subject or body.
+Used for the \fI\-request\fR subgroup address.
+.TP
+.B bounce
+Bounce processing mode.  Parses DSN (RFC 3464) or VERP-encoded
+return address to attribute the bounce to a subscriber and
+increment their bounce count.
+.RE
+.SH LIST PROCESSING PIPELINE
+When invoked in
+.B normal
+mode, the following checks run in order.  The first failure exits immediately.
+.PP
+.B 0. Max message size
+If \fI:max\-message\-size\-kb\fR is set and the message exceeds it, the
+message is rejected (exit 1).
+.PP
+.B 1. Loop detection
+If the list's loop header (\fIX\-BeenThere:\fR) is already present, the
+message is silently dropped (exit 0) to prevent mail loops.
+.PP
+.B 2. Daemon discrimination
+Messages from mailer\-daemons, null return paths, auto\-submitted
+messages, and
+.I Precedence: junk
+are silently dropped.
+.PP
+.B 3. Duplicate suppression
+The Message\-ID is checked against a 24\-hour ring buffer.  Duplicates
+are silently dropped.
+.PP
+.B 3y. Attachment policy
+If \fI:attachment\-policy\fR is \fIreject\fR and the message contains
+non\-text attachments, the message is rejected.
+.PP
+.B 3z0. Subject keyword filtering
+If \fI:subject\-allow\fR patterns are set, only matching subjects pass.
+If \fI:subject\-deny\fR patterns are set, matching subjects are held
+or rejected according to \fI:subject\-filter\-action\fR.
+.PP
+.B 3z1. Rate limiting
+If \fI:max\-posts\-per\-day\fR is set and the sender has exceeded it,
+the message is held (default), rejected, or discarded.
+.PP
+.B 3z. List locking
+If the list is locked (\fI:locked t\fR), all posts go to the held queue.
+.PP
+.B 4. Subgroup routing
+.RS
+.TP
+.B :request
+Command processing.  Subscribe, unsubscribe, help, nomail, resume,
+confirm, and diagnose commands are recognised in subject or body.
+.TP
+.B :announce
+Owner\-post\-only.  The sender must match \fI:owner\-address\fR.
+Non\-owner posts are rejected.
+.TP
+.B :owner
+Forward\-only.  The message is forwarded to \fI:owner\-addresses\fR
+and not distributed to subscribers.
+.TP
+.B :commits
+Bot\-post\-only.  The sender must match \fI:bot\-address\fR.
+Non\-bot posts are rejected.
+.TP
+.B :security
+If \fI:embargoed\-until\fR is set and in the future, posts are held
+in the embargo queue.
+.TP
+.B :discuss / :users / :devel / :distrib
+Normal subscriber\-writable distribution.
+.RE
+.PP
+.B 5. GPG / signing check
+If \fI:require\-signed t\fR, posts without a valid GPG signature are rejected.
+.PP
+.B 6. Moderation queue
+If the list is moderated (\fI:moderated t\fR), posts go to the held queue.
+.PP
+.B 7. Auto\-subscribe
+If \fI:auto\-subscribe t\fR and the sender is not subscribed, they are
+added before distribution.
+.PP
+.B 8. Subscriber check
+If the sender is not subscribed and \fI:auto\-subscribe\fR is nil, the
+\fI:non\-member\-action\fR policy applies: \fIreject\fR (default),
+\fIhold\fR, or \fIdiscard\fR.
+.PP
+.B 9. Digest buffering
+If \fI:delivery\-mode digest\fR, the message is appended to the digest
+buffer and not immediately distributed.
+.PP
+.B 10. Distribution
+The message is delivered individually to each non\-NOMAIL subscriber
+via
+.BR sendmail (8).
+RFC 2369 List\-* headers, DMARC rewriting, VERP envelope sender,
+Reply\-To munging, subject tagging, and compliance footer are applied.
+Existing DKIM\-Signature headers are stripped.
+.SH SUBGROUP ROLES
+mlisp uses a namespace\-subgroup address model.  A namespace
+.I mlisp
+creates addresses of the form \fImlisp\-subgroup@host\fR:
+.PP
+.TP
+.I mlisp\-discuss
+Subscriber\-writable general discussion
+.TP
+.I mlisp\-announce
+Owner\-post\-only notifications
+.TP
+.I mlisp\-devel
+Patches and VCS traffic
+.TP
+.I mlisp\-distrib
+Binary/file attachment releases
+.TP
+.I mlisp\-request
+Admin commands (subscribe/unsubscribe/help)
+.TP
+.I mlisp\-owner
+Owner contact (not subscriber\-visible)
+.TP
+.I mlisp\-security
+Security disclosures (GPG, embargo\-capable)
+.TP
+.I mlisp\-commits
+Automated VCS/CI notifications (bot\-post\-only)
+.TP
+.I mlisp\-users
+End\-user support
+.PP
+Use
+.B mlisp\-admin add\-namespace
+to create all nine subgroups at once.
+.SH EXIT CODES
+.TP
+.B 0
+Message processed successfully (delivered, held, or discarded by policy).
+.TP
+.B 1
+Message rejected.  Sendmail will bounce to sender.
+.TP
+.B 2
+Fatal error (state unreadable, SBCL crash).
+.SH ENVIRONMENT
+.TP
+.B MLISP_HOME
+Directory containing list state.  Default:
+.IR ~/.config/mlisp .
+.TP
+.B MLISP_SENDMAIL
+Path to sendmail\-compatible binary.  Default:
+.IR /usr/sbin/sendmail .
+.SH FILES
+.TP
+.I $MLISP_HOME/state/state.sexp
+List configuration and subscriber database (S\-expression format).
+.TP
+.I $MLISP_HOME/state/audit.sexp
+Append\-only audit log of all list events.
+.TP
+.I $MLISP_HOME/state/held/\fIlist\-id\fR.sexp
+Held\-for\-moderation message queue.
+.TP
+.I $MLISP_HOME/state/pending/\fIlist\-id\fR.sexp
+Pending double\-opt\-in confirmation tokens.
+.TP
+.I $MLISP_HOME/state/dedup/\fIlist\-id\fR.sexp
+Recent Message\-ID ring buffer for duplicate suppression.
+.TP
+.I $MLISP_HOME/state/ratelimit/\fIlist\-id\fR.sexp
+Per\-sender rate\-limit rolling window.
+.TP
+.I $MLISP_HOME/state/digest/\fIlist\-id\fR.sexp
+Pending digest message buffer.
+.TP
+.I $MLISP_HOME/templates/\fIlist\-id\fR.welcome.sexp
+Welcome message sent on subscription.
+.TP
+.I $MLISP_HOME/templates/\fIlist\-id\fR.goodbye.sexp
+Goodbye message sent on unsubscription.
+.TP
+.I $MLISP_HOME/templates/\fIlist\-id\fR.help.sexp
+Help response for the \fIhelp\fR command.
+.TP
+.I $MLISP_HOME/templates/\fIlist\-id\fR.footer.sexp
+Compliance footer appended to every distributed message.
+.SH EXAMPLES
+.PP
+Typical procmail recipe (generated by
+.BR "mlisp\-admin install\-procmail" ):
+.PP
+.RS
+.nf
+# mlisp: mlisp\-discuss
+:0
+* !^FROM_DAEMON
+* !^FROM_MAILER
+* !^Precedence: (bulk|junk|list)
+* ^TO_mlisp\-discuss@panix.com
+| mlisp \-\-home ~/.config/mlisp mlisp\-discuss
+
+# mlisp: mlisp\-request
+:0
+* ^TO_mlisp\-request@panix.com
+| mlisp \-\-home ~/.config/mlisp \-\-mode request mlisp\-request
+.fi
+.RE
+.SH SEE ALSO
+.BR mlisp\-admin (1),
+.BR mlisp\-distrib (1),
+.BR mlisp\-intro (7),
+.BR procmail (1),
+.BR sendmail (8)
+.PP
+RFC 2369 (List\-* headers),
+RFC 2919 (List\-Id),
+RFC 3464 (Delivery Status Notifications),
+RFC 6376 (DKIM),
+RFC 8058 (One\-Click Unsubscribe)
+.SH AUTHORS
+Dwight Spencer <dwight@dapla.net>
+.br
+Da Planet Security \(em https://dapla.net/

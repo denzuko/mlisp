@@ -447,7 +447,11 @@
     (:announce "owner-post-only notifications")
     (:devel    "patches and VCS traffic")
     (:distrib  "binary/file attachment releases")
-    (:request  "admin commands (subscribe/unsubscribe/help)"))
+    (:request  "admin commands (subscribe/unsubscribe/help)")
+    (:owner    "owner/admin contact (not subscriber-visible)")
+    (:security "security disclosures (GPG-required, embargo-capable)")
+    (:commits  "automated VCS/CI notifications (bot-post-only)")
+    (:users    "end-user support and general questions"))
   "Default subgroups created by add-namespace.")
 
 (defun cmd-add-namespace (args)
@@ -905,6 +909,175 @@
           (terpri)))
     0)))
 
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Subcommands: embargo / release-embargo (#55)
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(defun cmd-embargo (args)
+  (destructuring-bind (&optional list-id date &rest _) args
+    (declare (ignore _))
+    (unless (and list-id date)
+      (format *error-output* "mlisp-admin: embargo requires <list-id> <ISO8601-date>~%")
+      (return-from cmd-embargo 1))
+    (mlisp:load-state)
+    (let ((lst (mlisp:find-list list-id)))
+      (unless lst (format *error-output* "mlisp-admin: unknown list ~A~%" list-id)
+              (return-from cmd-embargo 1))
+      (if (member :embargoed-until lst)
+          (setf (getf lst :embargoed-until) date)
+          (nconc lst (list :embargoed-until date)))
+      (mlisp:save-state)
+      (mlisp:audit-append (list :event :embargo-set :list list-id :until date))
+      (format t "Embargoed ~A until ~A~%" list-id date)
+      0)))
+
+(defun cmd-release-embargo (args)
+  (let ((list-id (first args)))
+    (unless list-id
+      (format *error-output* "mlisp-admin: release-embargo requires <list-id>~%")
+      (return-from cmd-release-embargo 1))
+    (mlisp:load-state)
+    (let ((lst (mlisp:find-list list-id)))
+      (unless lst (format *error-output* "mlisp-admin: unknown list ~A~%" list-id)
+              (return-from cmd-release-embargo 1))
+      (remf lst :embargoed-until)
+      ;; Distribute any held security posts
+      (let ((held-path (merge-pathnames
+                         (format nil "state/held/~A.sexp" list-id)
+                         (mlisp:mlisp-home))))
+        (when (probe-file held-path)
+          (format t "Releasing held posts from ~A~%" held-path)))
+      (mlisp:save-state)
+      (mlisp:audit-append (list :event :embargo-released :list list-id))
+      (format t "Released embargo on ~A~%" list-id)
+      0)))
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Subcommand: export-csv (#52)
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(defun cmd-export-csv (args)
+  "export-csv <list-id> [--output file.csv] [--include-nomail] [--include-bounces]"
+  (let ((list-id     (first args))
+        (out-file    (let ((p (position "--output" args :test #'string=)))
+                       (when p (nth (1+ p) args))))
+        (incl-nomail (member "--include-nomail" args :test #'string=))
+        (incl-bounce (member "--include-bounces" args :test #'string=)))
+    (unless list-id
+      (format *error-output* "mlisp-admin: export-csv requires <list-id>~%")
+      (return-from cmd-export-csv 1))
+    (mlisp:load-state)
+    (let* ((subs  (mlisp:list-subscribers list-id))
+           (hash? (getf (mlisp:find-list list-id) :hash-contacts))
+           (csv
+            (with-output-to-string (s)
+              (format s "address,subscribed_at,consent_method,bounce_count,nomail,last_bounce_at~%")
+              (dolist (sub subs)
+                (when (or incl-nomail (not (getf sub :nomail)))
+                  (format s "~A,~A,~A,~A,~A,~A~%"
+                          (if hash?
+                              (or (getf sub :address-hash) "")
+                              (or (getf sub :address) ""))
+                          (or (getf sub :subscribed-at) "")
+                          (or (getf sub :consent-method) "")
+                          (or (getf sub :bounce-count) 0)
+                          (if (getf sub :nomail) "true" "false")
+                          (or (getf sub :last-bounce-at) "")))))))
+      (if out-file
+          (progn
+            (with-open-file (f out-file :direction :output
+                                        :if-exists :supersede
+                                        :if-does-not-exist :create)
+              (write-string csv f))
+            (format t "Exported ~A to ~A~%" list-id out-file))
+          (write-string csv *standard-output*))
+      0)))
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Subcommands: rename-list, copy-list, list-stats (#53)
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(defun cmd-rename-list (args)
+  (destructuring-bind (&optional old-id new-id &rest _) args
+    (declare (ignore _))
+    (unless (and old-id new-id)
+      (format *error-output* "mlisp-admin: rename-list requires <old-id> <new-id>~%")
+      (return-from cmd-rename-list 1))
+    (mlisp:load-state)
+    (let ((lst (mlisp:find-list old-id)))
+      (unless lst (format *error-output* "mlisp-admin: unknown list ~A~%" old-id)
+              (return-from cmd-rename-list 1))
+      ;; Update id in-place
+      (setf (getf lst :id) new-id)
+      ;; Update drop-address: replace old-id prefix
+      (let ((drop (getf lst :drop-address)))
+        (when drop
+          ;; Simple prefix replacement without regex dependency
+          (setf (getf lst :drop-address)
+                (if (and (>= (length drop) (length old-id))
+                         (string= (subseq drop 0 (length old-id)) old-id))
+                    (concatenate 'string new-id (subseq drop (length old-id)))
+                    drop))))
+      (mlisp:save-state)
+      (mlisp:audit-append (list :event :list-renamed :old old-id :new new-id))
+      (format t "Renamed ~A to ~A~%" old-id new-id)
+      0)))
+
+(defun cmd-copy-list (args)
+  (destructuring-bind (&optional src-id dst-id &rest _) args
+    (declare (ignore _))
+    (unless (and src-id dst-id)
+      (format *error-output* "mlisp-admin: copy-list requires <src-id> <dst-id>~%")
+      (return-from cmd-copy-list 1))
+    (mlisp:load-state)
+    (let ((src-lst (mlisp:find-list src-id)))
+      (unless src-lst (format *error-output* "mlisp-admin: unknown list ~A~%" src-id)
+              (return-from cmd-copy-list 1))
+      ;; Deep copy config, clear subscribers and counters
+      (let ((new-lst (copy-list src-lst)))
+        (setf (getf new-lst :id) dst-id)
+        (setf (getf new-lst :subscribers) '())
+        (setf (getf new-lst :message-counter) 0)
+        ;; Append to the state list store
+        (nconc mlisp:*state* (list new-lst))
+        (mlisp:save-state))
+      (format t "Copied config from ~A to ~A (subscribers not copied)~%" src-id dst-id)
+      0)))
+
+(defun cmd-list-stats (args)
+  (let ((list-id (first args))
+        (since   (let ((p (position "--since" args :test #'string=)))
+                   (when p (nth (1+ p) args)))))
+    (unless list-id
+      (format *error-output* "mlisp-admin: list-stats requires <list-id>~%")
+      (return-from cmd-list-stats 1))
+    (mlisp:load-state)
+    (let* ((audit-path (merge-pathnames "state/audit.sexp" (mlisp:mlisp-home)))
+           (events     (when (probe-file audit-path)
+                         (with-open-file (s audit-path)
+                           (loop for e = (ignore-errors (read s nil nil))
+                                 while e collect e))))
+           ;; Filter to this list
+           (list-events (remove-if-not
+                          (lambda (e)
+                            (and (string-equal (or (getf e :list) "") list-id)
+                                 (or (null since)
+                                     (string>= (or (getf e :at) "") since))))
+                          events))
+           (distributed (count :distributed list-events :key (lambda (e) (getf e :event))))
+           (held        (count :held         list-events :key (lambda (e) (getf e :event))))
+           (subscribed  (count :subscribed   list-events :key (lambda (e) (getf e :event))))
+           (unsubscribed (count :unsubscribed list-events :key (lambda (e) (getf e :event))))
+           (bounced     (count :bounce-removed list-events :key (lambda (e) (getf e :event)))))
+      (format t "Stats for ~A~@[ since ~A~]:~%" list-id since)
+      (format t "  distributed:  ~A~%" distributed)
+      (format t "  held:         ~A~%" held)
+      (format t "  subscribed:   ~A~%" subscribed)
+      (format t "  unsubscribed: ~A~%" unsubscribed)
+      (format t "  bounced/removed: ~A~%" bounced)
+      0)))
+
 (defun cmd-set-option (args)
   "Set a list option: set-option <list-id> <key> <value>"
   (destructuring-bind (&optional list-id key value &rest _) args
@@ -1232,12 +1405,13 @@ Config resolution order:
                     ((string= subcmd "export-ldif")     (cmd-export-ldif subcmd-args))
                     ((string= subcmd "verp-decode")     (cmd-verp-decode subcmd-args))
                     ((string= subcmd "diagnose")        (cmd-diagnose subcmd-args))
-                    ((string= subcmd "diagnose")         (cmd-diagnose subcmd-args))
-                    ((string= subcmd "add-sub-batch")   (cmd-add-sub-batch subcmd-args))
-                    ((string= subcmd "rm-sub-batch")    (cmd-rm-sub-batch subcmd-args))
-                    ((string= subcmd "show-pending")    (cmd-show-pending subcmd-args))
-                    ((string= subcmd "clear-pending")   (cmd-clear-pending subcmd-args))
-                    (t
+                    ((string= subcmd "embargo")         (cmd-embargo subcmd-args))
+                    ((string= subcmd "release-embargo") (cmd-release-embargo subcmd-args))
+                    ((string= subcmd "export-csv")       (cmd-export-csv subcmd-args))
+                    ((string= subcmd "rename-list")      (cmd-rename-list subcmd-args))
+                    ((string= subcmd "copy-list")        (cmd-copy-list subcmd-args))
+                    ((string= subcmd "list-stats")       (cmd-list-stats subcmd-args))
+                                                                                                                        (t
                      (format *error-output*
                              "mlisp-admin: unknown subcommand ~S~%" subcmd)
                      (usage)

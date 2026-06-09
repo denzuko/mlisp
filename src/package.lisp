@@ -88,6 +88,17 @@
    #:clear-expired-pending
    #:send-subscribe-challenge
    #:extract-confirm-token
+   ;; Rate limiting
+   #:rate-limit-exceeded-p
+   ;; Embargo
+   #:embargoed-p
+   #:list-embargoed-until
+   ;; Subgroup predicates (new)
+   #:list-owner-subgroup-p
+   #:list-security-p
+   #:list-commits-p
+   #:list-bot-address
+   #:list-owner-addresses
    ;; VERP
    #:verp-encode
    #:verp-decode

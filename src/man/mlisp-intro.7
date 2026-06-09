@@ -1,0 +1,501 @@
+.TH MLISP\-INTRO 7 "June 2026" "mlisp 0.5" "Miscellaneous"
+.SH NAME
+mlisp\-intro \- introduction to the mlisp mailing list manager
+.SH DESCRIPTION
+.B mlisp
+is a compiled SBCL Common Lisp mailing list manager that replaces
+.B smartlist
+and
+.B Mailman 2
+in a procmail\-based mail environment.  It runs as a delivery agent,
+not a daemon: each inbound message invokes the
+.B mlisp
+binary once via a procmail recipe.
+.PP
+This manual introduces the concepts needed to deploy and operate mlisp.
+For command references see
+.BR mlisp (1)
+and
+.BR mlisp\-admin (1).
+.SH 1. CONCEPTS
+.SS State directory
+All list configuration, subscriber records, and operational state
+live under a single directory,
+.BR MLISP_HOME
+(default
+.IR ~/.config/mlisp ).
+This directory contains:
+.PP
+.TP
+.I state/state.sexp
+List configs and subscriber database
+.TP
+.I state/audit.sexp
+Append\-only event log
+.TP
+.I template/
+Welcome, goodbye, help, and footer templates
+.TP
+.I bin/
+Optional local sendmail wrapper
+.SS List ID and subgroup
+Every list has a
+.IR list\-id ,
+which is the first argument to the
+.B mlisp
+binary.  List IDs follow the namespace\-subgroup convention
+(see section 5).
+.SS S\-expression state
+Configuration and subscriber records are stored as Common Lisp
+property lists in
+.IR state/state.sexp .
+This file is human\-readable and can be inspected with any text editor
+or queried with
+.B mlisp\-admin show\-config
+and
+.BR mlisp\-admin list\-subs .
+Never edit it while
+.B mlisp
+is actively processing messages.
+.SH 2. QUICK START
+.SS Install
+Build from source:
+.PP
+.RS
+.nf
+sbcl \-\-non\-interactive \-\-load build.lisp
+sbcl \-\-non\-interactive \-\-load build\-admin.lisp
+install \-m 755 bin/mlisp bin/mlisp\-admin /usr/local/bin/
+install \-m 644 src/man/mlisp.1 /usr/local/share/man/man1/
+install \-m 644 src/man/mlisp\-admin.1 /usr/local/share/man/man1/
+install \-m 644 src/man/mlisp\-intro.7 /usr/local/share/man/man7/
+.fi
+.RE
+.SS Initialise and create your first namespace
+.PP
+.RS
+.nf
+export MLISP_HOME=~/.config/mlisp
+mlisp\-admin init
+mlisp\-admin add\-namespace myproject myproject@example.com
+mlisp\-admin install\-procmail
+.fi
+.RE
+.PP
+This creates nine list records and appends nine procmail recipes to
+.IR ~/.procmailrc .
+.SS Send a test subscription
+.PP
+.RS
+echo "subscribe" | mail \-s subscribe myproject\-request@example.com
+.RE
+.PP
+You will receive a confirmation challenge.  Reply with
+.I confirm <token>
+to complete the subscription.
+.SH 3. SUBSCRIPTION WORKFLOW
+.SS Default: double opt\-in
+When
+.I :confirm\-subscribe
+is
+.I t
+(the default for new lists), a subscribe request triggers a
+challenge\-response flow:
+.PP
+.IP 1. 4
+Subscriber sends
+.I subscribe
+to the \fI\-request\fR address.
+.IP 2.
+mlisp generates a 32\-character hex token, stores it in
+.IR state/pending/<list\-id>.sexp ,
+and mails the challenge to the subscriber.
+.IP 3.
+Subscriber replies with
+.I confirm <token>
+in the subject or body.
+.IP 4.
+mlisp validates the token, adds the subscriber with
+.I consent\-method: double\-opt\-in
+in the subscriber record, and sends the welcome message.
+.PP
+Tokens expire after
+.I :confirm\-window\-hours
+(default 48 hours).
+.SS Immediate subscribe
+Set
+.I :confirm\-subscribe nil
+to skip confirmation (compatible with smartlist behaviour):
+.PP
+.RS
+mlisp\-admin set\-option myproject\-discuss confirm\-subscribe false
+.RE
+.SS NOMAIL (delivery suspension)
+A subscriber can suspend delivery without unsubscribing by sending
+.I nomail
+to the \fI\-request\fR address.  Resume with
+.I mail
+or
+.IR resume .
+NOMAIL subscribers can still post; they are skipped at distribution time.
+.SH 4. NAMESPACE STRUCTURE
+The namespace\-subgroup model derives from smartlist and LISTSERV conventions.
+A namespace
+.I proj
+creates addresses of the form \fIproj\-subgroup@host\fR.
+.PP
+.B mlisp\-admin add\-namespace proj proj@lists.example.com
+.PP
+creates all nine subgroup records.  Each subgroup has a distinct role;
+see section 5.  The single \fIproj\-request@lists.example.com\fR address
+handles all subscriber commands for the namespace.
+.PP
+The
+.I subscribe
+command accepts a subgroup name in the body:
+.PP
+.RS
+.I subscribe discuss
+.RE
+.PP
+subscribes the sender to
+.IR proj\-discuss .
+Without a subgroup name,
+.I subscribe
+defaults to
+.IR proj\-discuss .
+.SH 5. SUBGROUP ROLES
+.TP
+.B discuss
+Subscriber\-writable general discussion.  The primary list for most
+projects.  All subscribers can post.
+.TP
+.B announce
+Owner\-post\-only notifications.  Only the address in
+.I :owner\-address
+can post.  Non\-owner posts are rejected.
+.TP
+.B devel
+Patches, VCS activity, and development discussion.  Behaviorally
+identical to
+.IR discuss ,
+but semantically distinct for projects that separate developer
+and end\-user traffic.
+.TP
+.B distrib
+Binary and file attachment releases.  Posts are stored in the
+distribution archive and served to subscribers on request by
+.BR mlisp\-distrib (1).
+.TP
+.B request
+Admin command processor.  Handles subscribe, unsubscribe, help,
+nomail, resume, confirm, and diagnose commands.  Not for human
+discussion.
+.TP
+.B owner
+Off\-list escalation.  Messages are forwarded directly to
+.IR :owner\-addresses
+and never shown to subscribers.  Used for abuse reports and
+administrative contact.
+.TP
+.B security
+Security disclosures.  Posts are held under embargo until the
+release date set by
+.IR "mlisp\-admin embargo" .
+Typically configured with
+.I :require\-signed t
+so only GPG\-signed reports are accepted.
+.TP
+.B commits
+Automated VCS/CI notifications.  Only the address in
+.I :bot\-address
+can post.  No subscriber replies.  Configure your CI system to
+deliver commit notifications here.
+.TP
+.B users
+End\-user support.  Identical to
+.I discuss
+but semantically distinct for projects that run separate developer
+and user lists.
+.SH 6. MODERATING A LIST
+.SS Moderation queue
+.PP
+.RS
+.nf
+mlisp\-admin set\-option myproject\-discuss moderated true
+mlisp\-admin hold\-queue myproject\-discuss
+mlisp\-admin approve myproject\-discuss 1
+mlisp\-admin reject  myproject\-discuss 2
+.fi
+.RE
+.SS Emergency lock
+Lock the list to hold all posts regardless of subscriber status:
+.PP
+.RS
+.nf
+mlisp\-admin lock myproject\-discuss \-\-reason "Under attack until 2026\-07\-01"
+mlisp\-admin unlock myproject\-discuss
+.fi
+.RE
+.SS Non\-member post policy
+.PP
+.RS
+mlisp\-admin set\-option myproject\-discuss non\-member\-action hold
+.RE
+.SH 7. DIGEST MODE
+Enable digest mode:
+.PP
+.RS
+mlisp\-admin set\-option myproject\-discuss delivery\-mode digest
+.RE
+.PP
+Add a cron entry to flush the digest daily:
+.PP
+.RS
+0 12 * * * mlisp\-admin flush\-digest myproject\-discuss
+.RE
+.SH 8. BOUNCE MANAGEMENT
+mlisp uses a time\-windowed multigram bounce threshold:
+.IP \(bu 2
+Hard bounces (5xx, \fIAction: failed\fR in the DSN) count toward removal.
+.IP \(bu 2
+Soft bounces (4xx, \fIAction: delayed\fR) increment \fI:soft\-bounce\-count\fR only
+and never trigger removal.
+.IP \(bu 2
+A bounce resets the window if the gap since the previous bounce
+exceeds \fI:bounce\-window\-days\fR (default 30).  This prevents
+accumulated transient failures from removing active subscribers.
+.PP
+Enable VERP for per\-subscriber bounce attribution without DSN parsing:
+.PP
+.RS
+mlisp\-admin set\-option myproject\-discuss verp true
+.RE
+.PP
+View and reset bounce counts:
+.PP
+.RS
+.nf
+mlisp\-admin show\-bounces myproject\-discuss
+mlisp\-admin clear\-bounces myproject\-discuss alice@example.com
+.fi
+.RE
+.SH 9. PRIVACY AND GDPR
+.TP
+.B Hash contacts at rest
+.RS
+.nf
+mlisp\-admin set\-option myproject\-discuss hash\-contacts true
+.fi
+.RE
+Subscriber addresses are stored as SHA\-256 hashes.  Delivery uses
+the hashed records.  Audit and LDIF export respect this setting.
+.TP
+.B Double opt\-in consent
+Confirmed subscribers carry
+.I consent\-method: double\-opt\-in
+in their record.  Admin\-added subscribers carry
+.IR consent\-method: admin\-add .
+The consent method is included in CSV and LDIF exports for audit trails.
+.TP
+.B Right to erasure
+.RS
+.nf
+mlisp\-admin rm\-sub myproject\-discuss alice@example.com
+.fi
+.RE
+Writes an erasure audit event to \fIstate/audit.sexp\fR.
+.SH 10. DMARC AND DELIVERABILITY
+Strict DMARC domains (Gmail, Yahoo, and others with \fIp=reject\fR) cause
+list mail to be rejected unless the From header is rewritten.
+.PP
+Enable automatic DMARC\-safe rewriting:
+.PP
+.RS
+mlisp\-admin set\-option myproject\-discuss dmarc\-rewrite auto
+.RE
+.PP
+With \fIdmarc\-rewrite auto\fR, mlisp performs a DNS TXT lookup on
+\fI_dmarc.<sender\-domain>\fR and rewrites the From header only when
+the sender's domain publishes \fIp=reject\fR or \fIp=quarantine\fR.
+.PP
+The rewritten message carries:
+.PP
+.RS
+.nf
+From: myproject\-discuss via alice@gmail.com
+X\-Original\-From: alice@gmail.com
+Reply\-To: alice@gmail.com
+.fi
+.RE
+.PP
+Enable RFC 8058 one\-click unsubscribe (required by Gmail and Apple Mail):
+.PP
+.RS
+mlisp\-admin set\-option myproject\-discuss unsubscribe\-url https://lists.example.com/unsub/myproject\-discuss
+.RE
+.PP
+mlisp does not sign outbound messages (that is the MTA's responsibility),
+but it strips the original
+.I DKIM\-Signature
+from redistributed mail (which would be invalid) and preserves the
+inbound
+.I Authentication\-Results
+as
+.I X\-Original\-Authentication\-Results
+for downstream audit.
+.SH 11. PROCMAIL INTEGRATION
+mlisp integrates with any MTA that can deliver to procmail.  On
+.BR panix.com ,
+this is the standard delivery path.  The generated recipe structure is:
+.PP
+.RS
+.nf
+# mlisp: <list\-id>
+:0
+* !^FROM_DAEMON
+* !^FROM_MAILER
+* !^Precedence: (bulk|junk|list)
+* ^TO_<drop\-address>
+| mlisp \-\-home <MLISP_HOME> <list\-id>
+.fi
+.RE
+.PP
+The \fI\-request\fR subgroup uses \fI\-\-mode request\fR.  The \fI:request\fR
+subgroup itself gets a single recipe (not a \fI\-request\-request\fR pair).
+.PP
+Install or update recipes:
+.PP
+.RS
+.nf
+mlisp\-admin install\-procmail           # append to ~/.procmailrc
+mlisp\-admin install\-procmail \-\-dry\-run  # preview without writing
+.fi
+.RE
+.SH 12. MIGRATION FROM SMARTLIST
+.TP
+.B REQUIRED_OK
+.I :require\-signed t
+(GPG)
+.TP
+.B MODERATED
+.I :moderated t
+.TP
+.B ADMIN
+.I :owner\-address <addr>
+.TP
+.B REPLY_TO
+.I :reply\-to\-munging list|poster|none
+.TP
+.B MAX_MESSAGE_LENGTH
+.I :max\-message\-size\-kb N
+.TP
+.B HOST
+Derived from
+.I :drop\-address
+.TP
+Digest via cron
+.I set\-option delivery\-mode digest
++ cron
+.I flush\-digest
+.TP
+.B .allow
+file
+No direct equivalent; use
+.I :non\-member\-action discard
+or add allowed senders as subscribers
+.PP
+To migrate subscribers from a smartlist
+.I list.subscribers
+file:
+.PP
+.RS
+mlisp\-admin add\-sub\-batch myproject\-discuss list.subscribers
+.RE
+.SH 13. MIGRATION FROM MAILMAN
+Mailman 2 exports members as a plain list of addresses.  Export with:
+.PP
+.RS
+list_members \-o members.txt mylist
+.RE
+.PP
+Then import:
+.PP
+.RS
+.nf
+mlisp\-admin add\-sub\-batch myproject\-discuss members.txt
+.fi
+.RE
+.PP
+Configuration mapping:
+.TP
+.I reply_goes_to_list
+.I :reply\-to\-munging list
+.TP
+.I max_message_size
+.I :max\-message\-size\-kb N
+.TP
+.I default_member_moderation
+.I :moderated t
+.TP
+.I advertised
+No equivalent (all lists are public by default)
+.TP
+.I archive
+Set
+.I :archive\-url
+and configure Maildir
+.TP
+.I dkim_enabled
+.I :dmarc\-rewrite auto
+.TP
+.I member_posting_only
+.I :non\-member\-action reject
+(default)
+.SH 14. FILES
+.TP
+.I $MLISP_HOME/state/state.sexp
+List config and subscriber DB
+.TP
+.I $MLISP_HOME/state/audit.sexp
+Append\-only event log
+.TP
+.I $MLISP_HOME/state/held/<list>.sexp
+Held message queue
+.TP
+.I $MLISP_HOME/state/pending/<list>.sexp
+Confirmation token queue
+.TP
+.I $MLISP_HOME/state/dedup/<list>.sexp
+Message\-ID dedup ring buffer
+.TP
+.I $MLISP_HOME/state/digest/<list>.sexp
+Digest message buffer
+.TP
+.I $MLISP_HOME/state/ratelimit/<list>.sexp
+Per\-sender rate limit window
+.TP
+.I $MLISP_HOME/templates/<list>.welcome.sexp
+Welcome template
+.TP
+.I $MLISP_HOME/templates/<list>.goodbye.sexp
+Goodbye template
+.TP
+.I $MLISP_HOME/templates/<list>.help.sexp
+Help response template
+.TP
+.I $MLISP_HOME/templates/<list>.footer.sexp
+Compliance footer template
+.TP
+.I $MLISP_HOME/var/archive/<list>/
+Maildir archive (if enabled)
+.SH SEE ALSO
+.BR mlisp (1),
+.BR mlisp\-admin (1),
+.BR mlisp\-distrib (1),
+.BR procmail (1),
+.BR sendmail (8)
+.SH AUTHORS
+Dwight Spencer <dwight@dapla.net>
+.br
+Da Planet Security \(em https://dapla.net/
