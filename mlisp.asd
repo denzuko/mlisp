@@ -33,6 +33,7 @@
     :components
     ((:file "package")
      (:file "state")
+     (:file "confirm")
      (:file "gpg")
      (:file "mime")
      (:file "parser")
@@ -45,6 +46,7 @@
      (:file "dedup")
      (:file "maildir")
      (:file "modqueue")
+     (:file "diagnose")
      (:file "exploder")
      (:file "main"))))
 

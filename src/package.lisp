@@ -45,6 +45,7 @@
    #:compliance-footer-text
    ;; MTA (used by mlisp-admin approve and distrib)
    #:sendmail
+   #:handle-welcome
    #:distribute-message
    #:rfc2369-headers
    #:compliance-footer-text
@@ -78,6 +79,15 @@
    #:list-require-signed-p
    #:list-gpg-key-id
    #:gpg-verify
+   ;; Double opt-in confirmation
+   #:confirm-subscribe-p
+   #:add-pending
+   #:validate-token
+   #:consume-token
+   #:pending-entries
+   #:clear-expired-pending
+   #:send-subscribe-challenge
+   #:extract-confirm-token
    ;; NOMAIL, locking
    #:subscriber-nomail-p
    #:set-subscriber-nomail
@@ -90,6 +100,15 @@
    #:list-owner-address
    #:owner-post-p
    #:*known-subgroups*
+   ;; Diagnosis and multigram bounce
+   #:collect-diagnosis
+   #:format-diagnosis
+   #:handle-diagnose
+   #:write-extended-metrics
+   #:windowed-increment-bounce
+   #:record-delivery-success
+   #:maybe-reset-bounce
+   #:bounce-hard-p
    ;; Daemon discrimination
    #:daemon-message-p
    #:daemon-drop-reason
