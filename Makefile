@@ -87,3 +87,25 @@ install: build-all
 clean:
 	rm -f bin/mlisp bin/mlisp-admin bin/mlisp-distrib
 	find . -name '*.fasl' -delete
+
+# ─── Manpages ────────────────────────────────────────────────────────────────
+
+MANDIR ?= /usr/local/share/man
+MAN1 = src/man/mlisp.1 src/man/mlisp-admin.1 src/man/mlisp-distrib.1
+MAN7 = src/man/mlisp-intro.7
+
+man:
+	install -d $(MANDIR)/man1 $(MANDIR)/man7
+	install -m 644 $(MAN1) $(MANDIR)/man1/
+	install -m 644 $(MAN7) $(MANDIR)/man7/
+	@echo "Installed manpages to $(MANDIR)"
+
+docs: $(MAN1) $(MAN7)
+	mkdir -p doc
+	@for f in $(MAN1) $(MAN7); do \
+	  out=doc/$$(basename $$f .1)$$(basename $$f .7).html; \
+	  groff -man -Thtml $$f > doc/$$(basename $$f).html 2>/dev/null; \
+	  echo "  $$f -> doc/$$(basename $$f).html"; \
+	done
+
+.PHONY: man docs

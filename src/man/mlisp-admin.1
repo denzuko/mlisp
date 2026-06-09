@@ -1,0 +1,298 @@
+.TH MLISP\-ADMIN 1 "June 2026" "mlisp 0.5" "User Commands"
+.SH NAME
+mlisp\-admin \- mlisp mailing list administration tool
+.SH SYNOPSIS
+.B mlisp\-admin
+[\fB\-\-home\fR \fIdir\fR]
+\fIsubcommand\fR
+[\fIargs\fR ...]
+.SH DESCRIPTION
+.B mlisp\-admin
+manages mlisp list configuration, subscribers, moderation queues,
+and operational state.  All changes are written to
+.I $MLISP_HOME/state/state.sexp
+and logged to
+.IR $MLISP_HOME/state/audit.sexp .
+.SH OPTIONS
+.TP
+.BI \-\-home " dir"
+Override the state directory.  Equivalent to setting
+.BR MLISP_HOME .
+.SH SUBCOMMANDS
+.SS Initialisation
+.TP
+.B init [\-\-dir \fIpath\fR]
+Scaffold a new MLISP_HOME directory with seed state, default templates,
+and example procmail recipes.
+.SS Namespace management
+.TP
+.B add\-namespace \fIname\fR \fIbase\-address\fR [\-\-subgroups \fIsg1,sg2,...\fR]
+Create all nine standard subgroups for the namespace \fIname\fR.
+Addresses are formed as \fIname\-subgroup@domain\fR where domain is
+taken from \fIbase\-address\fR.
+.TP
+.B list\-namespace \fIname\fR
+Show all subgroups in the \fIname\fR namespace with their addresses
+and subscriber counts.
+.SS List management
+.TP
+.B add\-list \fIlist\-id\fR \fIdrop\-address\fR
+Add a new list record with the given drop address.
+.TP
+.B rm\-list \fIlist\-id\fR
+Remove a list record and all its state files.
+.TP
+.B list\-lists
+Print all list IDs with their drop addresses and subscriber counts.
+.TP
+.B rename\-list \fIold\-id\fR \fInew\-id\fR
+Rename a list, updating its ID and drop address prefix.
+.TP
+.B copy\-list \fIsrc\-id\fR \fIdst\-id\fR
+Clone the configuration of \fIsrc\-id\fR to a new list \fIdst\-id\fR.
+Subscribers are not copied.
+.TP
+.B list\-stats \fIlist\-id\fR [\-\-since \fIYYYY\-MM\-DD\fR]
+Print message distribution, hold, subscribe, and bounce counts
+from the audit log for \fIlist\-id\fR.
+.SS Configuration
+.TP
+.B set\-option \fIlist\-id\fR \fIkey\fR \fIvalue\fR
+Set a list configuration option.  Common keys:
+.RS
+.TP
+.B max\-message\-size\-kb
+Maximum message size in kilobytes.  0 = unlimited.
+.TP
+.B reply\-to\-munging
+One of \fInone\fR (preserve), \fIlist\fR (list address),
+or \fIposter\fR (original sender).
+.TP
+.B non\-member\-action
+One of \fIreject\fR (default), \fIhold\fR, or \fIdiscard\fR.
+.TP
+.B dmarc\-rewrite
+One of \fInever\fR (default), \fIalways\fR, or \fIauto\fR (DNS check).
+.TP
+.B verp
+.I true
+to enable VERP bounce tracking.
+.TP
+.B confirm\-subscribe
+.I true
+(default) for double opt\-in, or
+.I false
+for immediate subscribe.
+.TP
+.B confirm\-window\-hours
+Confirmation token expiry in hours.  Default: 48.
+.TP
+.B message\-numbering
+.I true
+to append \fI#NNN\fR sequence number to subject.
+.TP
+.B max\-posts\-per\-day
+Rate limit: maximum posts per sender per 24 hours.  0 = unlimited.
+.TP
+.B rate\-limit\-action
+One of \fIhold\fR (default), \fIreject\fR, or \fIdiscard\fR.
+.TP
+.B attachment\-policy
+One of \fIallow\fR (default), \fIstrip\fR, or \fIreject\fR.
+.TP
+.B subject\-allow
+Subject pattern that posts must match.  String or list.
+.TP
+.B subject\-deny
+Subject pattern that causes posts to be held/rejected.  String or list.
+.TP
+.B subject\-filter\-action
+One of \fIhold\fR (default), \fIreject\fR, or \fIdiscard\fR.
+.TP
+.B unsubscribe\-url
+HTTPS URL for RFC 8058 one\-click unsubscribe endpoint.
+.TP
+.B archive\-url
+URL of the list archive (written to \fIList\-Archive:\fR header).
+.TP
+.B owner\-address
+Email address of the list owner.
+.TP
+.B bot\-address
+Authorised bot address for \fI:commits\fR subgroup.
+.TP
+.B bounce\-window\-days
+Multigram bounce window.  Default: 30 days.
+.TP
+.B hash\-contacts
+.I true
+to store subscriber addresses as SHA\-256 hashes.
+.TP
+.B require\-signed
+.I true
+to require GPG\-signed posts.
+.RE
+.TP
+.B show\-config \fIlist\-id\fR
+Print the current configuration for \fIlist\-id\fR.
+.SS Subscriber management
+.TP
+.B add\-sub \fIlist\-id\fR \fIaddress\fR
+Add a subscriber.  Consent method: \fIadmin\-add\fR.
+.TP
+.B rm\-sub \fIlist\-id\fR \fIaddress\fR
+Remove a subscriber.  Writes erasure audit event.
+.TP
+.B list\-subs \fIlist\-id\fR
+Print all subscribers with subscription timestamp, consent method,
+and \fI[NOMAIL]\fR flag where applicable.
+.TP
+.B add\-sub\-batch \fIlist\-id\fR [\fIfile\fR]
+Bulk add subscribers from \fIfile\fR or standard input.  One address
+per line.  Supports \fIName <address>\fR format.  Blank lines and
+lines beginning with \fI#\fR are skipped.  Idempotent.
+.TP
+.B rm\-sub\-batch \fIlist\-id\fR [\fIfile\fR]
+Bulk remove subscribers from \fIfile\fR or standard input.
+.TP
+.B set\-nomail \fIlist\-id\fR \fIaddress\fR \fItrue\fR|\fIfalse\fR
+Set or clear the NOMAIL flag for a subscriber.
+.SS Confirmation tokens
+.TP
+.B show\-pending \fIlist\-id\fR
+List pending double opt\-in confirmation tokens with expiry.
+.TP
+.B clear\-pending \fIlist\-id\fR
+Remove expired confirmation tokens.
+.SS Moderation
+.TP
+.B hold\-queue \fIlist\-id\fR
+List held messages with sequence numbers.
+.TP
+.B approve \fIlist\-id\fR \fIseq\fR
+Distribute a held message.
+.TP
+.B reject \fIlist\-id\fR \fIseq\fR
+Discard a held message.
+.TP
+.B lock \fIlist\-id\fR [\-\-reason \fItext\fR]
+Lock a list.  All inbound posts are held until unlocked.
+.TP
+.B unlock \fIlist\-id\fR
+Remove the lock from a list.
+.SS Embargo
+.TP
+.B embargo \fIlist\-id\fR \fIISO8601\-date\fR
+Hold all posts to \fIlist\-id\fR until the given release date.
+Typically used with \fI:security\fR subgroups.
+.PP
+Example:
+.PP
+.RS
+mlisp\-admin embargo mlisp\-security 2026\-09\-15T12:00:00
+.RE
+.TP
+.B release\-embargo \fIlist\-id\fR
+Release the embargo immediately.  Held posts are made available
+for review; approve them individually with
+.BR hold\-queue / approve .
+.SS Bounce management
+.TP
+.B show\-bounces \fIlist\-id\fR
+Print subscribers with non\-zero bounce counts.
+.TP
+.B clear\-bounces \fIlist\-id\fR [\fIaddress\fR]
+Reset bounce count for one subscriber or all subscribers.
+.SS Digest
+.TP
+.B flush\-digest \fIlist\-id\fR
+Distribute the accumulated digest immediately.  Run via cron
+to schedule digest delivery.
+.SS Deduplication
+.TP
+.B show\-dedup \fIlist\-id\fR
+Print the recent Message\-ID ring buffer.
+.TP
+.B clear\-dedup \fIlist\-id\fR
+Clear the deduplication ring buffer.
+.SS Exploder
+.TP
+.B add\-exploder \fIumbrella\-id\fR \fImember\-id\fR [\fImember\-id\fR ...]
+Configure \fIumbrella\-id\fR as an exploder list that redistributes
+to each named member list.
+.SS Distribution (mlisp\-distrib)
+.TP
+.B add\-distrib \fIlist\-id\fR \fIfile\fR
+Add a file to the distribution archive for \fIlist\-id\fR.
+.SS VERP
+.TP
+.B verp\-decode \fIverp\-address\fR
+Decode a VERP\-encoded bounce return address to the original subscriber address.
+.PP
+Example:
+.PP
+.RS
+mlisp\-admin verp\-decode mlisp\-discuss+ab12cd34=alice=example.com@panix.com
+.br
+alice@example.com
+.RE
+.SS Export
+.TP
+.B export\-ldif \fIlist\-id\fR [\-\-base\-dn \fIDN\fR] [\-\-output \fIfile.ldif\fR]
+Export subscriber list as RFC 2849 LDIF
+.I groupOfNames
+entry.
+.TP
+.B export\-csv \fIlist\-id\fR [\-\-output \fIfile.csv\fR] [\-\-include\-nomail]
+Export subscriber list as RFC 4180 CSV with headers:
+\fIaddress, subscribed_at, consent_method, bounce_count, nomail, last_bounce_at\fR.
+.SS Diagnosis
+.TP
+.B diagnose \fIlist\-id\fR
+Print a full health report: subscriber counts, bounce statistics,
+lock/moderation status, configuration summary, and missing templates.
+.SS Procmail
+.TP
+.B install\-procmail [\-\-dry\-run] [\-\-list \fIlist\-id\fR]
+Append procmail recipes to \fI~/.procmailrc\fR.  With \fI\-\-dry\-run\fR,
+print recipes without modifying the file.  With \fI\-\-list\fR, install
+only the recipes for the named list.
+.SS Metrics
+.TP
+.B export\-metrics
+Print Prometheus\-format metrics for all lists.
+.SH EXAMPLES
+.PP
+Create a complete mlisp namespace for a project:
+.PP
+.RS
+.nf
+mlisp\-admin \-\-home ~/.config/mlisp add\-namespace myproj myproj@example.com
+mlisp\-admin \-\-home ~/.config/mlisp install\-procmail
+mlisp\-admin \-\-home ~/.config/mlisp diagnose myproj\-discuss
+.fi
+.RE
+.PP
+Configure a list for a public project (DMARC\-safe, double opt\-in):
+.PP
+.RS
+.nf
+mlisp\-admin set\-option myproj\-discuss dmarc\-rewrite auto
+mlisp\-admin set\-option myproj\-discuss reply\-to\-munging list
+mlisp\-admin set\-option myproj\-discuss unsubscribe\-url https://lists.example.com/unsub/myproj\-discuss
+.fi
+.RE
+.PP
+Bulk import subscribers from a Mailman export:
+.PP
+.RS
+mlisp\-admin add\-sub\-batch myproj\-discuss members.txt
+.RE
+.SH SEE ALSO
+.BR mlisp (1),
+.BR mlisp\-distrib (1),
+.BR mlisp\-intro (7)
+.SH AUTHORS
+Dwight Spencer <dwight@dapla.net>
+.br
+Da Planet Security \(em https://dapla.net/

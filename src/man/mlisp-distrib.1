@@ -1,0 +1,74 @@
+.TH MLISP\-DISTRIB 1 "June 2026" "mlisp 0.5" "User Commands"
+.SH NAME
+mlisp\-distrib \- mlisp file distribution agent
+.SH SYNOPSIS
+.B mlisp\-distrib
+[\fB\-\-home\fR \fIdir\fR]
+\fIlist\-id\fR
+\fIfile\fR
+.PP
+.B mlisp\-distrib
+[\fB\-\-home\fR \fIdir\fR]
+\fIlist\-id\fR
+.B \-\-index
+.SH DESCRIPTION
+.B mlisp\-distrib
+delivers a file to all subscribers of a \fI:distrib\fR subgroup list,
+or serves file requests from subscribers.
+.PP
+When given a
+.IR file ,
+it wraps the file as a MIME
+.I multipart/mixed
+message with the file as an
+.I application/octet\-stream
+attachment and delivers it to all list subscribers.
+.PP
+When given
+.BR \-\-index ,
+it sends the subscriber the list of available files.
+.PP
+Files are tracked in the distribution archive under
+.IR $MLISP_HOME/var/archive/<list\-id>/ .
+Use
+.B mlisp\-admin add\-distrib
+to add a file to the archive without immediately distributing it.
+.SH OPTIONS
+.TP
+.BI \-\-home " dir"
+Override the state directory.
+.TP
+.B \-\-index
+Send the file index to the requesting address instead of distributing a file.
+.SH EXAMPLES
+.PP
+Distribute a release archive to all subscribers:
+.PP
+.RS
+mlisp\-distrib mlisp\-distrib myproject\-1.0.tar.gz
+.RE
+.PP
+Add a file to the archive without distributing (for on\-demand retrieval):
+.PP
+.RS
+mlisp\-admin add\-distrib myproject\-distrib myproject\-1.0.tar.gz
+.RE
+.PP
+Typical procmail recipe:
+.PP
+.RS
+.nf
+# mlisp: myproject\-distrib
+:0
+* ^TO_myproject\-distrib@example.com
+| mlisp\-distrib \-\-home ~/.config/mlisp myproject\-distrib
+.fi
+.RE
+.SH SEE ALSO
+.BR mlisp (1),
+.BR mlisp\-admin (1),
+.BR mlisp\-intro (7)
+.SH AUTHORS
+Dwight Spencer <dwight@dapla.net>
+.br
+Da Planet Security \(em https://dapla.net/
