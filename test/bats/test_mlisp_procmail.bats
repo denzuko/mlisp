@@ -44,9 +44,9 @@ teardown() { rm -rf "${SCRATCH}"; }
     grep -qE "^\| .*/mlisp" "${MLISP_HOME_ORIG}/etc/procmailrc.sample"
 }
 
-@test "PM-5 procmailrc.sample has one block per list (3 total)" {
+@test "PM-5 procmailrc.sample has one block per subgroup (5 total)" {
     count=$(grep -c "^:0" "${MLISP_HOME_ORIG}/etc/procmailrc.sample")
-    [ "$count" -eq 3 ]
+    [ "$count" -eq 5 ]
 }
 
 # ── install-procmail subcommand exists ───────────────────────────────────────
