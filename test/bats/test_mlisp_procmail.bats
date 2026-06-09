@@ -44,9 +44,9 @@ teardown() { rm -rf "${SCRATCH}"; }
     grep -qE "^\| .*/mlisp" "${MLISP_HOME_ORIG}/etc/procmailrc.sample"
 }
 
-@test "PM-5 procmailrc.sample has one block per list (3 total)" {
+@test "PM-5 procmailrc.sample has one block per subgroup (5 total)" {
     count=$(grep -c "^:0" "${MLISP_HOME_ORIG}/etc/procmailrc.sample")
-    [ "$count" -eq 3 ]
+    [ "$count" -eq 5 ]
 }
 
 # ── install-procmail subcommand exists ───────────────────────────────────────
@@ -103,21 +103,21 @@ teardown() { rm -rf "${SCRATCH}"; }
 
 @test "PM-15 install-procmail writes TO_ match for each list drop address" {
     "${ADMIN_BIN}" --home "${SCRATCH}" install-procmail
-    grep -q "denzuko+mlist-discuss@panix.com"  "${HOME}/.procmailrc"
-    grep -q "denzuko+mlist-announce@panix.com" "${HOME}/.procmailrc"
-    grep -q "denzuko+mlist-devel@panix.com"    "${HOME}/.procmailrc"
+    grep -q "mlisp-discuss@panix.com"  "${HOME}/.procmailrc"
+    grep -q "mlisp-announce@panix.com" "${HOME}/.procmailrc"
+    grep -q "mlisp-devel@panix.com"    "${HOME}/.procmailrc"
 }
 
 @test "PM-16 install-procmail recipe pipes to mlisp with --home flag" {
     "${ADMIN_BIN}" --home "${SCRATCH}" install-procmail
-    grep -qE "mlisp --home .+ discuss" "${HOME}/.procmailrc"
+    grep -qE "mlisp --home .+ mlisp-discuss" "${HOME}/.procmailrc"
 }
 
 @test "PM-17 install-procmail appends recipe blocks (list + request per list)" {
     "${ADMIN_BIN}" --home "${SCRATCH}" install-procmail
     count=$(grep -c "^:0" "${HOME}/.procmailrc")
-    # 2 blocks per list (list + -request) * 3 lists = 6
-    [ "$count" -eq 6 ]
+    # discuss,announce,devel,distrib each get 2; request gets 1 = 9 total
+    [ "$count" -eq 9 ]
 }
 
 # ── idempotency ───────────────────────────────────────────────────────────────
@@ -126,8 +126,8 @@ teardown() { rm -rf "${SCRATCH}"; }
     "${ADMIN_BIN}" --home "${SCRATCH}" install-procmail
     "${ADMIN_BIN}" --home "${SCRATCH}" install-procmail
     count=$(grep -c "^:0" "${HOME}/.procmailrc")
-    # Still 6 after two runs (idempotent)
-    [ "$count" -eq 6 ]
+    # Still 9 after two runs (idempotent)
+    [ "$count" -eq 9 ]
 }
 
 @test "PM-19 install-procmail preserves existing ~/.procmailrc content" {
@@ -155,17 +155,17 @@ teardown() { rm -rf "${SCRATCH}"; }
 
 # ── --list filter ─────────────────────────────────────────────────────────────
 
-@test "PM-21 install-procmail --list discuss installs discuss and discuss-request" {
-    "${ADMIN_BIN}" --home "${SCRATCH}" install-procmail --list discuss
+@test "PM-21 install-procmail --list mlisp-discuss installs mlisp-discuss and discuss-request" {
+    "${ADMIN_BIN}" --home "${SCRATCH}" install-procmail --list mlisp-discuss
     count=$(grep -c "^:0" "${HOME}/.procmailrc")
     # 2 blocks: discuss list + discuss-request
     [ "$count" -eq 2 ]
-    grep -q "discuss" "${HOME}/.procmailrc"
+    grep -q "mlisp-discuss" "${HOME}/.procmailrc"
 }
 
-@test "PM-22 install-procmail --list discuss does not add announce or devel" {
-    "${ADMIN_BIN}" --home "${SCRATCH}" install-procmail --list discuss
-    run grep "announce" "${HOME}/.procmailrc"
+@test "PM-22 install-procmail --list mlisp-discuss does not add announce or devel" {
+    "${ADMIN_BIN}" --home "${SCRATCH}" install-procmail --list mlisp-discuss
+    run grep "mlisp-announce" "${HOME}/.procmailrc"
     [ "$status" -ne 0 ]
 }
 
@@ -177,11 +177,11 @@ teardown() { rm -rf "${SCRATCH}"; }
 # ── recipe correctness ────────────────────────────────────────────────────────
 
 @test "PM-24 generated recipe uses correct list-id as mlisp argument" {
-    "${ADMIN_BIN}" --home "${SCRATCH}" install-procmail --list devel
-    grep -qE "mlisp .* devel$" "${HOME}/.procmailrc"
+    "${ADMIN_BIN}" --home "${SCRATCH}" install-procmail --list mlisp-devel
+    grep -qE "mlisp .* mlisp-devel$" "${HOME}/.procmailrc"
 }
 
 @test "PM-25 generated recipe has mlisp-managed comment block for idempotency" {
-    "${ADMIN_BIN}" --home "${SCRATCH}" install-procmail --list discuss
-    grep -q "mlisp: discuss" "${HOME}/.procmailrc"
+    "${ADMIN_BIN}" --home "${SCRATCH}" install-procmail --list mlisp-discuss
+    grep -q "mlisp: mlisp-discuss" "${HOME}/.procmailrc"
 }

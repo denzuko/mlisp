@@ -1,0 +1,12 @@
+(:document
+ (:title "ANNOUNCE Mailing List -- Help")
+ (:author "denzuko+mlist-announce@panix.com")
+ (:abstract "Command reference for the announce mailing list.")
+ (:section "Available Commands")
+ (:pp "Send email to denzuko+mlist-announce@panix.com with one of the following in the Subject or first body line:")
+ (:p "  subscribe    -- join the announce list")
+ (:p "  unsubscribe  -- leave the announce list")
+ (:p "  help         -- receive this help message")
+ (:section "Posting")
+ (:pp "Subscribers may post directly to denzuko+mlist-announce@panix.com.")
+ (:raw ".br"))

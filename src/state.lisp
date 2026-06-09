@@ -156,17 +156,78 @@
   (or (getf (find-list list-id) :privacy-url)
       "https://dwightspencer.com/privacy"))
 
+
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Namespace and subgroup accessors
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(defparameter *known-subgroups* '("discuss" "announce" "devel" "distrib" "request")
+  "Known subgroup suffixes in the namespace-subgroup convention.")
+
+(defun list-subgroup (list-id)
+  "Return the :subgroup keyword for LIST-ID, or derive it from the suffix."
+  (or (getf (find-list list-id) :subgroup)
+      ;; Derive from suffix: mlisp-discuss → :discuss
+      (let ((id (string-downcase list-id)))
+        (dolist (sg *known-subgroups*)
+          (when (and (> (length id) (length sg))
+                     (string= (subseq id (- (length id) (length sg))) sg)
+                     (char= (char id (- (length id) (length sg) 1)) #\-))
+            (return (intern (string-upcase sg) :keyword)))))))
+
+(defun list-namespace (list-id)
+  "Return the namespace prefix of LIST-ID (everything before the last -subgroup).
+   e.g. mlisp-discuss → mlisp, mlisp-devel → mlisp."
+  (let ((sg (list-subgroup list-id)))
+    (when sg
+      (let* ((suffix (string-downcase (symbol-name sg)))
+             (id     (string-downcase list-id))
+             (cut    (- (length id) (length suffix) 1)))
+        (when (>= cut 0)
+          (subseq id 0 cut))))))
+
+(defun namespace-siblings (list-id)
+  "Return all list records sharing the same namespace as LIST-ID."
+  (let ((ns (list-namespace list-id)))
+    (when (and ns *state*)
+      (remove-if-not
+       (lambda (lst)
+         (let ((sibling-ns (list-namespace (getf lst :id))))
+           (and sibling-ns (string= sibling-ns ns))))
+       (getf *state* :lists)))))
+
 (defun list-request-address (list-id)
-  "Return the -request command address for LIST-ID."
+  "Return the -request address for LIST-ID.
+   Prefers stored :request-address; falls back to finding the -request sibling."
   (or (getf (find-list list-id) :request-address)
+      ;; Find -request sibling in the same namespace
+      (let ((sibling (find-if (lambda (lst)
+                                (eq (list-subgroup (getf lst :id)) :request))
+                              (namespace-siblings list-id))))
+        (when sibling (getf sibling :drop-address)))
+      ;; Last resort: derive from drop address
       (let ((drop (list-drop-address list-id)))
-        ;; Derive: foo+bar@host -> foo+bar-request@host
-        (if drop
-            (let* ((at (position #\@ drop))
-                   (local (subseq drop 0 at))
-                   (domain (subseq drop at)))
-              (concatenate 'string local "-request" domain))
-            nil))))
+        (when drop
+          (let* ((at     (position #\@ drop))
+                 (local  (subseq drop 0 at))
+                 (domain (subseq drop at)))
+            (concatenate 'string local "-request" domain))))))
+
+(defun list-announce-p (list-id)
+  "Return T if LIST-ID is an announce (owner-post-only) subgroup."
+  (eq (list-subgroup list-id) :announce))
+
+(defun list-owner-address (list-id)
+  "Return the configured owner address for LIST-ID, or nil."
+  (getf (find-list list-id) :owner-address))
+
+(defun owner-post-p (list-id from-addr)
+  "Return T if FROM-ADDR is the configured owner for LIST-ID."
+  (let ((owner (list-owner-address list-id)))
+    (and owner
+         (string-equal (string-downcase (or (extract-address from-addr) from-addr))
+                       (string-downcase owner)))))
 
 (defun list-auto-subscribe-p (list-id)
   "Return T if the list has :auto-subscribe set to T."

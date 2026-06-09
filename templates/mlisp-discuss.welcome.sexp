@@ -1,0 +1,10 @@
+(:document
+ (:title "DISCUSS Mailing List -- Welcome")
+ (:author "denzuko+mlist-discuss@panix.com")
+ (:abstract "Automated welcome message from the discuss mailing list.")
+ (:section "Welcome")
+ (:pp "You have been successfully subscribed to the discuss mailing list.")
+ (:pp "To post a message, send email to denzuko+mlist-discuss@panix.com.")
+ (:pp "To unsubscribe, send a message with subject: unsubscribe.")
+ (:pp "To get this help again, send a message with subject: help.")
+ (:raw ".br"))
