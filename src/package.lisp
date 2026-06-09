@@ -78,10 +78,6 @@
    #:list-require-signed-p
    #:list-gpg-key-id
    #:gpg-verify
-   ;; NOMAIL, locking
-   #:subscriber-nomail-p
-   #:set-subscriber-nomail
-   #:find-subscriber
    ;; Namespace-subgroup model
    #:list-subgroup
    #:list-namespace

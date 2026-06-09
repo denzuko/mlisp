@@ -174,9 +174,8 @@
         (if (null subs)
             (format t "No subscribers on ~A.~%" list-id)
             (dolist (rec subs)
-              (format t "~A~:[~; [NOMAIL]~]~%  subscribed-at: ~A~%  consent-method: ~A~%"
-                      (or (getf rec :address) (format nil "hash:~A" (getf rec :address-hash)))
-                      (getf rec :nomail)
+              (format t "~A~%  subscribed-at: ~A~%  consent-method: ~A~%"
+                      (getf rec :address)
                       (getf rec :subscribed-at)
                       (getf rec :consent-method)))))
       0)))
@@ -552,80 +551,6 @@
                     (length (getf lst :subscribers)))))
       0)))
 
-
-;;; ─────────────────────────────────────────────────────────────────────────────
-;;; Subcommand: set-nomail
-;;; ─────────────────────────────────────────────────────────────────────────────
-
-(defun cmd-set-nomail (args)
-  (destructuring-bind (&optional list-id address flag-str &rest _) args
-    (declare (ignore _))
-    (unless (and list-id address flag-str)
-      (format *error-output* "mlisp-admin: set-nomail requires <list-id> <address> true|false~%")
-      (return-from cmd-set-nomail 1))
-    (mlisp:load-state)
-    (let ((flag (cond ((string-equal flag-str "true")  t)
-                      ((string-equal flag-str "false") nil)
-                      (t (format *error-output* "mlisp-admin: flag must be true or false~%")
-                         (return-from cmd-set-nomail 1)))))
-      (if (mlisp:set-subscriber-nomail list-id address flag)
-          (progn
-            (format t "Set ~A NOMAIL=~A on ~A~%" address flag list-id)
-            0)
-          (progn
-            (format *error-output* "mlisp-admin: ~A not found in ~A~%" address list-id)
-            1)))))
-
-;;; ─────────────────────────────────────────────────────────────────────────────
-;;; Subcommand: lock / unlock
-;;; ─────────────────────────────────────────────────────────────────────────────
-
-(defun cmd-lock (args)
-  (let ((list-id (first args))
-        (reason  (let ((p (position "--reason" args :test #'string=)))
-                   (when p (nth (1+ p) args)))))
-    (unless list-id
-      (format *error-output* "mlisp-admin: lock requires <list-id>~%")
-      (return-from cmd-lock 1))
-    (mlisp:load-state)
-    (let ((lst (mlisp:find-list list-id)))
-      (unless lst
-        (format *error-output* "mlisp-admin: unknown list ~A~%" list-id)
-        (return-from cmd-lock 1))
-      (if (member :locked lst)
-          (setf (getf lst :locked) t)
-          (nconc lst (list :locked t)))
-      (when reason
-        (if (member :lock-reason lst)
-            (setf (getf lst :lock-reason) reason)
-            (nconc lst (list :lock-reason reason))))
-      (mlisp:save-state)
-      (format t "Locked ~A~@[ — ~A~]~%" list-id reason)
-      0)))
-
-(defun cmd-unlock (args)
-  (let ((list-id (first args)))
-    (unless list-id
-      (format *error-output* "mlisp-admin: unlock requires <list-id>~%")
-      (return-from cmd-unlock 1))
-    (mlisp:load-state)
-    (let ((lst (mlisp:find-list list-id)))
-      (unless lst
-        (format *error-output* "mlisp-admin: unknown list ~A~%" list-id)
-        (return-from cmd-unlock 1))
-      ;; Remove :locked and :lock-reason from plist
-      (let ((new-plist
-             (loop for (k v) on lst by #'cddr
-                   unless (member k '(:locked :lock-reason))
-                   nconc (list k v))))
-        ;; Replace list contents
-        (loop for (k v) on new-plist by #'cddr do
-          (setf (getf lst k) v)))
-      (remf lst :locked)
-      (mlisp:save-state)
-      (format t "Unlocked ~A~%" list-id)
-      0)))
-
 (defun cmd-set-option (args)
   "Set a list option: set-option <list-id> <key> <value>"
   (destructuring-bind (&optional list-id key value &rest _) args
@@ -943,9 +868,6 @@ Config resolution order:
                     ((string= subcmd "add-distrib")     (cmd-add-distrib subcmd-args))
                     ((string= subcmd "add-namespace")   (cmd-add-namespace subcmd-args))
                     ((string= subcmd "list-namespace")  (cmd-list-namespace subcmd-args))
-                    ((string= subcmd "set-nomail")      (cmd-set-nomail subcmd-args))
-                    ((string= subcmd "lock")            (cmd-lock subcmd-args))
-                    ((string= subcmd "unlock")          (cmd-unlock subcmd-args))
                     (t
                      (format *error-output*
                              "mlisp-admin: unknown subcommand ~S~%" subcmd)

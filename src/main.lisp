@@ -16,23 +16,6 @@
                           "unknown@unknown"))
            (loop-hdr  (list-loop-header list-id)))
 
-      ;; 0. Max message size check
-      (let ((max-kb (or (getf (find-list list-id) :max-message-size-kb) 0)))
-        (when (> max-kb 0)
-          (let* ((body-size (reduce #'+ body-lines :key #'length :initial-value 0))
-                 (hdr-size  (reduce #'+ headers
-                                    :key (lambda (h)
-                                           (+ (length (car h)) (length (cdr h)) 4))
-                                    :initial-value 0))
-                 (total-kb  (ceiling (+ body-size hdr-size) 1024)))
-            (when (> total-kb max-kb)
-              (format *error-output*
-                      "mlisp: message too large (~AKB, max ~AKB) on ~A~%"
-                      total-kb max-kb list-id)
-              (audit-append (list :event :size-rejected :list list-id
-                                  :size-kb total-kb :max-kb max-kb))
-              (return-from process-message 1)))))
-
       ;; 1. Loop detection
       (when (header-value headers loop-hdr)
         (format *error-output* "mlisp: loop detected on ~A, dropping.~%" list-id)
@@ -67,13 +50,6 @@
            (handle-help list-id from-addr)
            0)
           (t
-           ;; 3z. List locking — hold ALL posts when :locked t
-           (when (getf (find-list list-id) :locked)
-             (let ((seq (hold-message list-id headers body-lines)))
-               (audit-append (list :event :locked-hold :list list-id
-                                   :seq seq :from from-addr)))
-             (return-from process-message 0))
-
            ;; 4a. :request subgroup — command-only regardless of --mode flag
            (when (eq (list-subgroup list-id) :request)
              (let ((cmd (detect-command headers body-lines)))
@@ -107,24 +83,6 @@
                   (return-from process-message 0))
                  (:help
                   (handle-help list-id from-addr)
-                  (return-from process-message 0))
-                 (:nomail
-                  ;; Suspend delivery for this address across all namespace subgroups
-                  (let ((ns (list-namespace list-id)))
-                    (dolist (sibling (if ns
-                                        (namespace-siblings list-id)
-                                        (list (find-list list-id))))
-                      (set-subscriber-nomail (getf sibling :id) from-addr t)))
-                  (audit-append (list :event :nomail-set :list list-id :address from-addr))
-                  (return-from process-message 0))
-                 (:resume
-                  ;; Resume delivery
-                  (let ((ns (list-namespace list-id)))
-                    (dolist (sibling (if ns
-                                        (namespace-siblings list-id)
-                                        (list (find-list list-id))))
-                      (set-subscriber-nomail (getf sibling :id) from-addr nil)))
-                  (audit-append (list :event :mail-resumed :list list-id :address from-addr))
                   (return-from process-message 0))
                  (t
                   (format *error-output*
@@ -208,29 +166,12 @@
                                         :list list-id :from from-addr))
                     (record-metric list-id :distributed)))
                  0)
-               (let* ((raw    (getf (find-list list-id) :non-member-action))
-                      (policy (cond
-                                ((null raw) :reject)
-                                ((keywordp raw) raw)
-                                ((string-equal raw "hold")    :hold)
-                                ((string-equal raw "discard") :discard)
-                                (t :reject))))
-                 (cond
-                   ((eq policy :hold)
-                    (let ((seq (hold-message list-id headers body-lines)))
-                      (audit-append (list :event :non-member-held :list list-id
-                                          :seq seq :from from-addr)))
-                    0)
-                   ((eq policy :discard)
-                    (audit-append (list :event :non-member-discard :list list-id
-                                        :from from-addr))
-                    0)
-                   (t  ; :reject (default)
-                    (handle-reject list-id from-addr)
-                    (audit-append (list :event :post-rejected
-                                        :list list-id :from from-addr))
-                    (record-metric list-id :rejected)
-                    1))))))))))
+               (progn
+                 (handle-reject list-id from-addr)
+                 (audit-append (list :event :post-rejected
+                                     :list list-id :from from-addr))
+                 (record-metric list-id :rejected)
+                 1))))))))
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Argument parsing (shared by mlisp and mlisp-admin)
