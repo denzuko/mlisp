@@ -566,21 +566,6 @@
 ;;; Subcommand: diagnose
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
-(defun cmd-diagnose (args)
-  "Usage: diagnose <list-id>
-   Print list health report to stdout."
-  (let ((list-id (first args)))
-    (unless list-id
-      (format *error-output* "mlisp-admin: diagnose requires <list-id>~%")
-      (return-from cmd-diagnose 1))
-    (mlisp:load-state)
-    (unless (mlisp:find-list list-id)
-      (format *error-output* "mlisp-admin: unknown list ~A~%" list-id)
-      (return-from cmd-diagnose 1))
-    (let ((d (mlisp:collect-diagnosis list-id)))
-      (write-string (mlisp:format-diagnosis d))
-      0)))
-
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Subcommand: show-pending / clear-pending
 ;;; ─────────────────────────────────────────────────────────────────────────────
@@ -779,6 +764,146 @@
       (mlisp:audit-append (list :event :batch-unsubscribe :list list-id :removed removed))
       (format t "~A: removed ~A, ~A not found~%" list-id removed not-found)
       0)))
+
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Subcommand: export-ldif
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(defun cmd-export-ldif (args)
+  "export-ldif <list-id> [--base-dn <dn>] [--output <file>]
+   Export list subscribers as LDIF (RFC 2849) groupOfNames entry."
+  (let ((list-id  (first args))
+        (base-dn  (let ((p (position "--base-dn" args :test #'string=)))
+                    (if p (nth (1+ p) args) "dc=example,dc=com")))
+        (out-file (let ((p (position "--output" args :test #'string=)))
+                    (when p (nth (1+ p) args)))))
+    (unless list-id
+      (format *error-output* "mlisp-admin: export-ldif requires <list-id>~%")
+      (return-from cmd-export-ldif 1))
+    (mlisp:load-state)
+    (let* ((lst   (mlisp:find-list list-id))
+           (subs  (mlisp:list-subscribers list-id))
+           (desc  (or (getf lst :description) list-id))
+           (hash? (getf lst :hash-contacts))
+           (ldif
+            (with-output-to-string (s)
+              ;; Group entry
+              (format s "dn: cn=~A,ou=mailinglists,~A~%" list-id base-dn)
+              (format s "objectClass: top~%")
+              (format s "objectClass: groupOfNames~%")
+              (format s "cn: ~A~%" list-id)
+              (format s "description: ~A~%" desc)
+              (if subs
+                  (dolist (sub subs)
+                    (let ((uid (if hash?
+                                   (getf sub :address-hash)
+                                   (when (getf sub :address)
+                                     (substitute #\. #\@
+                                       (getf sub :address))))))
+                      (when uid
+                        (format s "member: uid=~A,ou=people,~A~%" uid base-dn))))
+                  ;; LDIF groupOfNames requires at least one member
+                  (format s "member: cn=empty,ou=mailinglists,~A~%" base-dn))
+              (terpri s))))
+      (if out-file
+          (progn
+            (with-open-file (f out-file :direction :output
+                                        :if-exists :supersede
+                                        :if-does-not-exist :create)
+              (write-string ldif f))
+            (format t "Exported ~A to ~A~%" list-id out-file))
+          (write-string ldif *standard-output*))
+      0)))
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Subcommand: verp-decode
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(defun cmd-verp-decode (args)
+  "verp-decode <verp-address>
+   Decode a VERP-encoded bounce address to the original subscriber address."
+  (let ((verp-addr (first args)))
+    (unless verp-addr
+      (format *error-output* "mlisp-admin: verp-decode requires <verp-address>~%")
+      (return-from cmd-verp-decode 1))
+    (let ((decoded (mlisp:verp-decode verp-addr)))
+      (if decoded
+          (progn (format t "~A~%" decoded) 0)
+          (progn
+            (format *error-output* "mlisp-admin: could not decode VERP address: ~A~%" verp-addr)
+            1)))))
+
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Subcommand: diagnose
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(defun cmd-diagnose (args)
+  "diagnose <list-id>
+   Print a health report for the list to stdout."
+  (let ((list-id (first args)))
+    (unless list-id
+      (format *error-output* "mlisp-admin: diagnose requires <list-id>~%")
+      (return-from cmd-diagnose 1))
+    (mlisp:load-state)
+    (let* ((lst      (mlisp:find-list list-id))
+           (ns       (mlisp:list-namespace list-id))
+           (siblings (when ns (mlisp:namespace-siblings list-id))))
+      (unless lst
+        (format *error-output* "mlisp-admin: unknown list ~A~%" list-id)
+        (return-from cmd-diagnose 1))
+      (format t "mlisp List Diagnosis Report~%")
+      (format t "Generated: ~A~%~%" (mlisp:iso8601-now))
+      (dolist (target (or siblings (list lst)))
+        (let* ((tid          (getf target :id))
+               (subs         (mlisp:list-subscribers tid))
+               (active-subs  (remove-if (lambda (r) (getf r :nomail)) subs))
+               (noml         (- (length subs) (length active-subs)))
+               (pending      (mlisp:pending-entries tid))
+               (bouncing     (remove-if-not
+                               (lambda (r) (> (or (getf r :bounce-count) 0) 0))
+                               subs))
+               (tmpl-dir     (merge-pathnames "templates/" (mlisp:mlisp-home)))
+               (missing-tpls (remove-if
+                               (lambda (n)
+                                 (probe-file (merge-pathnames
+                                              (format nil "~A.~A.sexp" tid n)
+                                              tmpl-dir)))
+                               '("welcome" "goodbye" "help" "footer"))))
+          (format t "List: ~A~%" tid)
+          (format t "  subgroup:       ~A~%" (getf target :subgroup))
+          (format t "  drop address:   ~A~%" (getf target :drop-address))
+          (format t "  request addr:   ~A~%" (getf target :request-address))
+          (format t "  subscribers:    ~A total (~A active, ~A NOMAIL, ~A pending confirm)~%"
+                  (length subs) (length active-subs) noml (length pending))
+          (format t "  bouncing:       ~A subscriber~:P with bounce-count > 0~%"
+                  (length bouncing))
+          (when bouncing
+            (dolist (b bouncing)
+              (format t "    ~A: ~A bounce~:P~%"
+                      (or (getf b :address) "(hashed)")
+                      (getf b :bounce-count))))
+          (format t "  locked:         ~A~%" (if (getf target :locked) "YES - locked" "no"))
+          (format t "  moderated:      ~A~%" (if (getf target :moderated) "yes" "no"))
+          (format t "  delivery mode:  ~A~%" (or (getf target :delivery-mode) "individual"))
+          (format t "  max msg size:   ~A~%"
+                  (if (getf target :max-message-size-kb)
+                      (format nil "~A KB" (getf target :max-message-size-kb))
+                      "unlimited"))
+          (format t "  confirm sub:    ~A~%"
+                  (if (mlisp:confirm-subscribe-p tid) "yes (double opt-in)" "no (immediate)"))
+          (format t "  non-member:     ~A~%"
+                  (or (getf target :non-member-action) "reject"))
+          (format t "  DMARC rewrite:  ~A~%"
+                  (or (getf target :dmarc-rewrite) "none"))
+          (format t "  VERP:           ~A~%" (if (getf target :verp) "enabled" "disabled"))
+          (format t "  hash contacts:  ~A~%" (if (getf target :hash-contacts) "yes" "no"))
+          (if missing-tpls
+              (format t "  missing templates: ~{~A~^, ~}~%" missing-tpls)
+              (format t "  templates:      all present~%"))
+          (terpri)))
+    0)))
 
 (defun cmd-set-option (args)
   "Set a list option: set-option <list-id> <key> <value>"
@@ -1104,6 +1229,9 @@ Config resolution order:
                     ((string= subcmd "clear-pending")   (cmd-clear-pending subcmd-args))
                     ((string= subcmd "add-sub-batch")   (cmd-add-sub-batch subcmd-args))
                     ((string= subcmd "rm-sub-batch")    (cmd-rm-sub-batch subcmd-args))
+                    ((string= subcmd "export-ldif")     (cmd-export-ldif subcmd-args))
+                    ((string= subcmd "verp-decode")     (cmd-verp-decode subcmd-args))
+                    ((string= subcmd "diagnose")        (cmd-diagnose subcmd-args))
                     ((string= subcmd "diagnose")         (cmd-diagnose subcmd-args))
                     ((string= subcmd "add-sub-batch")   (cmd-add-sub-batch subcmd-args))
                     ((string= subcmd "rm-sub-batch")    (cmd-rm-sub-batch subcmd-args))

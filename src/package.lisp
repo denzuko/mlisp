@@ -88,6 +88,10 @@
    #:clear-expired-pending
    #:send-subscribe-challenge
    #:extract-confirm-token
+   ;; VERP
+   #:verp-encode
+   #:verp-decode
+   #:list-verp-p
    ;; NOMAIL, locking
    #:subscriber-nomail-p
    #:set-subscriber-nomail
