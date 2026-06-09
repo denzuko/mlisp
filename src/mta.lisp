@@ -103,9 +103,22 @@ Privacy: ~A~%~
            (rfc2369-headers list-id)
            (list (cons loop-hdr   "1")
                  (cons "Sender"   drop)
-                 (cons "Reply-To" drop)
                  (cons "Subject"  tagged-subj)
-                 (cons "To"       drop))))
+                 (cons "To"       drop))
+           ;; Reply-To munging
+           (let ((munge (getf (find-list list-id) :reply-to-munging)))
+             (cond
+               ((or (eq munge :list) (equal munge "list"))
+                (list (cons "Reply-To" drop)))
+               ((or (eq munge :poster) (equal munge "poster"))
+                (list (cons "Reply-To"
+                            (or (header-value headers "From") drop))))
+               (t
+                ;; :none or unset — preserve original Reply-To if present
+                (let ((orig-rt (header-value headers "Reply-To")))
+                  (if orig-rt
+                      (list (cons "Reply-To" orig-rt))
+                      (list (cons "Reply-To" drop)))))))))
          (msg-body
           (with-output-to-string (s)
             (dolist (h headers)

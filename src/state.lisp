@@ -109,14 +109,19 @@
   (getf (find-list list-id) :subscribers))
 
 (defun subscriber-addresses (list-id)
-  "Return flat list of subscriber email address strings for LIST-ID."
-  (mapcar (lambda (r) (getf r :address)) (list-subscribers list-id)))
+  "Return flat list of active (non-NOMAIL) subscriber email addresses for LIST-ID."
+  (mapcar (lambda (r) (getf r :address))
+          (remove-if (lambda (r) (getf r :nomail))
+                     (list-subscribers list-id))))
 
 (defun subscriber-p (list-id address)
-  "Return T if ADDRESS is subscribed to LIST-ID (case-insensitive)."
-  (member (string-downcase address)
-          (mapcar #'string-downcase (subscriber-addresses list-id))
-          :test #'string=))
+  "Return T if ADDRESS is subscribed to LIST-ID (case-insensitive).
+   Includes :nomail subscribers — they can still post, just not receive."
+  (let ((addr-lc (string-downcase address)))
+    (some (lambda (sub)
+            (string= addr-lc
+                     (string-downcase (or (getf sub :address) ""))))
+          (list-subscribers list-id))))
 
 (defun iso8601-now ()
   "Return current UTC time as ISO-8601 string YYYY-MM-DDTHH:MM:SS."
@@ -232,6 +237,34 @@
 (defun list-auto-subscribe-p (list-id)
   "Return T if the list has :auto-subscribe set to T."
   (getf (find-list list-id) :auto-subscribe))
+
+(defun subscriber-nomail-p (list-id address)
+  "Return T if ADDRESS has :nomail t on LIST-ID."
+  (let ((sub (find-subscriber list-id address)))
+    (and sub (getf sub :nomail))))
+
+(defun set-subscriber-nomail (list-id address flag)
+  "Set :nomail FLAG on subscriber ADDRESS in LIST-ID."
+  (let* ((lst (find-list list-id))
+         (subs (getf lst :subscribers))
+         (sub (find-if (lambda (s)
+                         (string-equal (string-downcase (or (getf s :address) ""))
+                                       (string-downcase address)))
+                       subs)))
+    (when sub
+      (if (member :nomail sub)
+          (setf (getf sub :nomail) flag)
+          (nconc sub (list :nomail flag)))
+      (save-state)
+      t)))
+
+(defun find-subscriber (list-id address)
+  "Return the subscriber plist for ADDRESS in LIST-ID, or nil."
+  (let ((lst (find-list list-id)))
+    (find-if (lambda (s)
+               (string-equal (string-downcase (or (getf s :address) ""))
+                              (string-downcase address)))
+             (getf lst :subscribers))))
 
 (defun list-max-bounces (list-id)
   "Return the bounce threshold for LIST-ID."
