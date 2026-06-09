@@ -49,12 +49,28 @@
     (sb-ext:process-wait proc)
     (sb-ext:process-exit-code proc)))
 
+(defun next-message-number (list-id)
+  "Increment and return the next message sequence number for LIST-ID.
+   Persists the counter to state immediately so it survives across calls."
+  (let* ((lst (find-list list-id))
+         (n   (1+ (or (getf lst :message-counter) 0))))
+    (if (member :message-counter lst)
+        (setf (getf lst :message-counter) n)
+        (nconc lst (list :message-counter n)))
+    (save-state)
+    n))
+
 (defun tag-subject (subject list-id)
-  "Prepend [LIST-ID] to SUBJECT if not already present (CAN-SPAM § 7704(a)(1))."
-  (let ((tag (format nil "[~A] " list-id)))
+  "Prepend [LIST-ID] (and optional #NNN) to SUBJECT if not already present."
+  (let* ((tag     (format nil "[~A] " list-id))
+         (use-num (getf (find-list list-id) :message-numbering))
+         (n       (when use-num (next-message-number list-id)))
+         (full-tag (if n
+                       (format nil "[~A #~3,'0D] " list-id n)
+                       tag)))
     (if (search (string-downcase tag) (string-downcase subject))
         subject
-        (concatenate 'string tag subject))))
+        (concatenate 'string full-tag subject))))
 
 (defun compliance-footer-text (list-id)
   "Return plain-text compliance footer for LIST-ID.
@@ -77,19 +93,45 @@ Privacy: ~A~%~
             line list-id drop purl line addr line)))
 
 (defun rfc2369-headers (list-id)
-  "Return RFC 2369 List-* and Usenet crossover headers as an alist."
-  (let* ((drop (list-drop-address list-id))
-         (req  (list-request-address list-id))
-         (lid  (format nil "<~A.mlisp.dapla.net>" list-id)))
-    (list
-     (cons "List-Id"          lid)
-     (cons "List-Post"        (format nil "<mailto:~A>" drop))
-     (cons "List-Help"        (format nil "<mailto:~A?subject=help>" req))
-     (cons "List-Subscribe"   (format nil "<mailto:~A?subject=subscribe>" req))
-     (cons "List-Unsubscribe" (format nil "<mailto:~A?subject=unsubscribe>" req))
-     (cons "X-Mailing-List"   (format nil "<~A>" drop))
-     (cons "X-BeenThere"      drop)
-     (cons "Precedence"       "list"))))
+  "Return RFC 2369/2919/8058 List-* and Usenet crossover headers as an alist."
+  (let* ((drop     (list-drop-address list-id))
+         (req      (list-request-address list-id))
+         ;; RFC 2919: List-Id derives domain from drop-address, not hardcoded
+         (at-pos   (position #\@ drop))
+         (l-domain (if at-pos (subseq drop (1+ at-pos)) "localhost"))
+         (lid      (format nil "<~A.~A>" list-id l-domain))
+         (lst      (find-list list-id))
+         (unsub-url (getf lst :unsubscribe-url))
+         (archive-url (getf lst :archive-url))
+         ;; :owner subgroup in same namespace
+         (ns        (list-namespace list-id))
+         (owner-lst (when ns (find-list (format nil "~A-owner" ns))))
+         (owner-drop (when owner-lst (list-drop-address (getf owner-lst :id)))))
+    (append
+     (list
+      (cons "List-Id"          lid)
+      (cons "List-Post"        (format nil "<mailto:~A>" drop))
+      (cons "List-Help"        (format nil "<mailto:~A?subject=help>" req))
+      (cons "List-Subscribe"   (format nil "<mailto:~A?subject=subscribe>" req))
+      ;; RFC 8058: include HTTPS URI first when configured
+      (if unsub-url
+          (cons "List-Unsubscribe"
+                (format nil "<~A>, <mailto:~A?subject=unsubscribe>"
+                        unsub-url req))
+          (cons "List-Unsubscribe"
+                (format nil "<mailto:~A?subject=unsubscribe>" req)))
+      (cons "X-Mailing-List"   (format nil "<~A>" drop))
+      (cons "X-BeenThere"      drop)
+      (cons "Precedence"       "list"))
+     ;; RFC 8058: List-Unsubscribe-Post only when HTTPS URL configured
+     (when unsub-url
+       (list (cons "List-Unsubscribe-Post" "List-Unsubscribe=One-Click")))
+     ;; List-Archive when configured
+     (when archive-url
+       (list (cons "List-Archive" (format nil "<~A>" archive-url))))
+     ;; List-Owner pointing to -owner subgroup
+     (when owner-drop
+       (list (cons "List-Owner" (format nil "<mailto:~A>" owner-drop)))))))
 
 (defun verp-encode (list-id subscriber-address)
   "Encode subscriber address into VERP envelope sender.
@@ -131,6 +173,16 @@ Privacy: ~A~%~
   "Deliver individually to each subscriber (BCC privacy).
    Strips MIME; injects RFC 2369 List-* headers, Usenet headers,
    Precedence: list, subject tag, compliance footer."
+  ;; Strip DKIM-Signature (RFC 6376 §5: invalid after redistribution)
+  ;; Preserve inbound Authentication-Results for ARC audit chain
+  (let ((auth-res (header-value headers "Authentication-Results")))
+    (when auth-res
+      (setf headers
+            (cons (cons "X-Original-Authentication-Results" auth-res)
+                  (remove-if (lambda (h) (string-equal (car h) "Authentication-Results"))
+                             headers)))))
+  (setf headers (remove-if (lambda (h) (string-equal (car h) "DKIM-Signature")) headers))
+
   (let* ((addrs       (subscriber-addresses list-id))
          (drop        (list-drop-address list-id))
          (loop-hdr    (list-loop-header list-id))

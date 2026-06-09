@@ -110,6 +110,74 @@
            (audit-append (list :event :mail-resumed :list list-id :address from-addr))
            0)
           (t
+           ;; 3y. Attachment policy enforcement
+           (let ((att-result (enforce-attachment-policy list-id headers body-lines)))
+             (case att-result
+               (:reject
+                (format *error-output*
+                        "mlisp: ~A rejects attachments; post rejected~%" list-id)
+                (audit-append (list :event :attachment-rejected :list list-id :from from-addr))
+                (return-from process-message 1))
+               (t nil)))  ; :ok or :stripped — continue
+
+           ;; 3z0. Subject keyword filtering (#50)
+           (let* ((subj       (or (header-value headers "Subject") ""))
+                  (subj-lc    (string-downcase subj))
+                  ;; Normalise: stored as string (single pattern) or list of strings
+                  (allow-pats (let ((raw (getf (find-list list-id) :subject-allow)))
+                                (cond ((null raw) nil)
+                                      ((listp raw) raw)
+                                      (t (list raw)))))
+                  (deny-pats  (let ((raw (getf (find-list list-id) :subject-deny)))
+                                (cond ((null raw) nil)
+                                      ((listp raw) raw)
+                                      (t (list raw)))))
+                  (action     (let ((raw (getf (find-list list-id) :subject-filter-action)))
+                                (cond ((eq raw :reject) :reject)
+                                      ((eq raw :discard) :discard)
+                                      ((equal raw "reject") :reject)
+                                      ((equal raw "discard") :discard)
+                                      (t :hold)))))
+             ;; Allow list: if set, subject must match at least one pattern
+             (when (and allow-pats
+                        (not (some (lambda (p) (search (string-downcase p) subj-lc))
+                                   allow-pats)))
+               (case action
+                 (:discard (audit-append (list :event :subject-filtered :list list-id :from from-addr))
+                           (return-from process-message 0))
+                 (:reject  (return-from process-message 1))
+                 (t        (hold-message list-id headers body-lines)
+                           (audit-append (list :event :subject-held :list list-id :from from-addr))
+                           (return-from process-message 0))))
+             ;; Deny list: if subject matches any pattern, reject/hold/discard
+             (when deny-pats
+               (when (some (lambda (p) (search (string-downcase p) subj-lc)) deny-pats)
+                 (case action
+                   (:discard (audit-append (list :event :subject-filtered :list list-id :from from-addr))
+                             (return-from process-message 0))
+                   (:reject  (return-from process-message 1))
+                   (t        (hold-message list-id headers body-lines)
+                             (audit-append (list :event :subject-held :list list-id :from from-addr))
+                             (return-from process-message 0))))))
+
+           ;; 3z1. Per-sender rate limiting (#54)
+           (when (rate-limit-exceeded-p list-id from-addr)
+             (let* ((action (let ((raw (getf (find-list list-id) :rate-limit-action)))
+                              (cond ((or (eq raw :reject) (equal raw "reject")) :reject)
+                                    ((or (eq raw :discard) (equal raw "discard")) :discard)
+                                    (t :hold)))))
+               (case action
+                 (:reject
+                  (audit-append (list :event :rate-limit-reject :list list-id :from from-addr))
+                  (return-from process-message 1))
+                 (:discard
+                  (audit-append (list :event :rate-limit-discard :list list-id :from from-addr))
+                  (return-from process-message 0))
+                 (t
+                  (hold-message list-id headers body-lines)
+                  (audit-append (list :event :rate-limit-held :list list-id :from from-addr))
+                  (return-from process-message 0)))))
+
            ;; 3z. List locking — hold ALL posts when :locked t
            (when (getf (find-list list-id) :locked)
              (let ((seq (hold-message list-id headers body-lines)))
@@ -229,6 +297,47 @@
                        list-id from-addr)
                (record-metric list-id :announce-reject)
                (return-from process-message 1)))
+           ;; 4d. :owner subgroup — forward only to owner addresses, not subscribers
+           (when (list-owner-subgroup-p list-id)
+             (let ((owners (list-owner-addresses list-id)))
+               (if owners
+                   (progn
+                     (dolist (owner owners)
+                       (sendmail (list owner)
+                                 (with-output-to-string (s)
+                                   (dolist (h headers)
+                                     (format s "~A: ~A~%" (car h) (cdr h)))
+                                   (terpri s)
+                                   (dolist (line body-lines) (write-line line s)))
+                                 :extra-headers
+                                 (list (cons "X-Forwarded-To-Owner" list-id))))
+                     (audit-append (list :event :owner-forwarded :list list-id
+                                         :from from-addr)))
+                   (format *error-output*
+                           "mlisp: ~A has no :owner-address configured~%" list-id)))
+             (return-from process-message 0))
+           ;; 4e. :commits subgroup — accept only from :bot-address; bypass subscriber check
+           (when (list-commits-p list-id)
+             (let ((bot (list-bot-address list-id)))
+               (unless (and bot (string-equal
+                                  (string-downcase (or (extract-address from-addr) ""))
+                                  (string-downcase bot)))
+                 (format *error-output*
+                         "mlisp: ~A accepts posts only from bot-address~%" list-id)
+                 (record-metric list-id :commits-reject)
+                 (return-from process-message 1)))
+             ;; Bot verified — distribute directly without subscriber auth
+             (let ((code (distribute-message list-id from-addr headers body-lines)))
+               (record-metric list-id :distributed)
+               (audit-append (list :event :distributed :list list-id :from from-addr)))
+             (return-from process-message 0))
+           ;; 4f. :security subgroup — embargo check
+           (when (and (list-security-p list-id) (embargoed-p list-id))
+             (let ((seq (hold-message list-id headers body-lines)))
+               (audit-append (list :event :embargoed-held :list list-id
+                                   :seq seq :from from-addr
+                                   :until (list-embargoed-until list-id))))
+             (return-from process-message 0))
            ;; 5. Exploder bypass: relay lists don't check per-list subscription
            (when (list-exploder-p list-id)
              (distribute-exploder list-id from-addr headers body-lines)

@@ -167,7 +167,9 @@
 ;;; Namespace and subgroup accessors
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
-(defparameter *known-subgroups* '("discuss" "announce" "devel" "distrib" "request")
+(defparameter *known-subgroups*
+  '("discuss" "announce" "devel" "distrib" "request"
+    "owner" "security" "commits" "users")
   "Known subgroup suffixes in the namespace-subgroup convention.")
 
 (defun list-subgroup (list-id)
@@ -223,6 +225,43 @@
   "Return T if LIST-ID is an announce (owner-post-only) subgroup."
   (eq (list-subgroup list-id) :announce))
 
+(defun list-owner-subgroup-p (list-id)
+  "Return T if LIST-ID is the :owner routing subgroup."
+  (eq (list-subgroup list-id) :owner))
+
+(defun list-security-p (list-id)
+  "Return T if LIST-ID is the :security embargoed/GPG subgroup."
+  (eq (list-subgroup list-id) :security))
+
+(defun list-commits-p (list-id)
+  "Return T if LIST-ID is the :commits bot-post-only subgroup."
+  (eq (list-subgroup list-id) :commits))
+
+(defun list-bot-address (list-id)
+  "Return the configured bot address for LIST-ID (:commits subgroup)."
+  (getf (find-list list-id) :bot-address))
+
+(defun list-owner-addresses (list-id)
+  "Return list of owner addresses for LIST-ID."
+  (let ((oa (getf (find-list list-id) :owner-addresses)))
+    (cond
+      ((null oa) (let ((single (list-owner-address list-id)))
+                   (when single (list single))))
+      ((listp oa) oa)
+      (t (list oa)))))
+
+(defun list-embargoed-until (list-id)
+  "Return the embargo release datetime string for LIST-ID, or nil."
+  (getf (find-list list-id) :embargoed-until))
+
+(defun embargoed-p (list-id)
+  "Return T if LIST-ID is currently under embargo (past release date)."
+  (let ((until (list-embargoed-until list-id)))
+    (when (and until (stringp until) (> (length until) 0))
+      ;; Parse ISO8601 and compare — simple string comparison works for
+      ;; well-formed YYYY-MM-DDTHH:MM:SS vs current time
+      (string> until (iso8601-now)))))
+
 (defun list-owner-address (list-id)
   "Return the configured owner address for LIST-ID, or nil."
   (getf (find-list list-id) :owner-address))
@@ -237,6 +276,51 @@
 (defun list-auto-subscribe-p (list-id)
   "Return T if the list has :auto-subscribe set to T."
   (getf (find-list list-id) :auto-subscribe))
+
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Per-sender rate limiting (#54)
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(defun ratelimit-path (list-id)
+  (merge-pathnames (format nil "state/ratelimit/~A.sexp" list-id) (mlisp-home)))
+
+(defun load-ratelimit (list-id)
+  (let ((path (ratelimit-path list-id)))
+    (if (probe-file path)
+        (with-open-file (s path) (or (ignore-errors (read s)) '()))
+        '())))
+
+(defun save-ratelimit (list-id entries)
+  (let* ((path (ratelimit-path list-id))
+         (tmp  (format nil "~A.tmp" path)))
+    (ensure-directories-exist path)
+    (with-open-file (s tmp :direction :output :if-exists :supersede
+                           :if-does-not-exist :create)
+      (let ((*print-pretty* t) (*print-case* :downcase))
+        (write entries :stream s) (terpri s)))
+    (rename-file tmp path)))
+
+(defun rate-limit-exceeded-p (list-id from-addr)
+  "Return T if FROM-ADDR has exceeded :max-posts-per-day on LIST-ID.
+   Updates the rolling window cache as a side effect."
+  (let* ((max-posts (or (getf (find-list list-id) :max-posts-per-day) 0)))
+    (when (> max-posts 0)
+      (let* ((now     (get-universal-time))
+             (window  86400)  ; 24 hours
+             (entries (load-ratelimit list-id))
+             (addr-lc (string-downcase from-addr))
+             ;; Prune entries older than window
+             (fresh   (remove-if (lambda (e)
+                                   (> (- now (getf e :ts 0)) window))
+                                 entries))
+             ;; Count posts from this sender in window
+             (sender-posts (count addr-lc fresh
+                                  :key (lambda (e) (string-downcase (getf e :addr "")))
+                                  :test #'string=)))
+        (save-ratelimit list-id
+                        (cons (list :addr from-addr :ts now) fresh))
+        (>= sender-posts max-posts)))))
 
 (defun subscriber-nomail-p (list-id address)
   "Return T if ADDRESS has :nomail t on LIST-ID."
