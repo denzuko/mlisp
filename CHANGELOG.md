@@ -4,6 +4,23 @@ All notable changes to mlisp are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-06-10
+
+### Added
+- **Quicklisp dist** (`dist/`): self-hosted distribution at
+  `http://panix.com/~denzuko/dist/mlisp/distinfo.txt`.
+  `make dist` generates from HEAD; `make dist-upload` rsyncs to panix.com.
+  Resolves the Debian packaging Quicklisp dependency — build scripts already
+  conditionally load Quicklisp when present and fall through to bare ASDF.
+- **contrib/mlisp.el**: Emacs minor mode for mlisp administration.
+  Shell-out backend (default): calls `mlisp-admin` binary directly.
+  SLIME/vlime backend (`mlisp-use-slime t`): evaluates in connected SBCL image.
+  16 `M-x mlisp-*` commands; completing-read on live list IDs; `set-option`
+  completion over all known keys. `(mlisp-setup-keys "C-c m")` binds all
+  commands under a prefix key.
+- **Makefile**: `dist`, `dist-upload`, `dist-clean` targets.
+
+[0.6.1]: https://github.com/denzuko/mlisp/compare/v0.6.0...v0.6.1
 ## [0.6.0] - 2026-06-10
 
 ### Added
