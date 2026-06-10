@@ -1,0 +1,61 @@
+#!/bin/sh
+# etc/filters/gemini-archive — mlisp post-filter: archive to Gemini capsule
+#
+# Appends each distributed message to a Gemini text file index.
+# Compatible with Agate, Molly Brown, and other Gemini servers.
+#
+# Install:
+#   mlisp-admin set-option <list-id> post-filter /path/to/filters/gemini-archive
+#
+# Configuration (environment or edit below):
+#   GEMINI_CAPSULE_DIR — directory served by your Gemini server
+#   GEMINI_LIST_DIR    — subdirectory for this list's archive
+#
+# Exit codes (mlisp filter contract):
+#   0 = pass (archiving is a side effect; original message continues)
+#   Filter must always exit 0 to avoid blocking distribution.
+
+GEMINI_CAPSULE_DIR="${GEMINI_CAPSULE_DIR:-/var/gemini}"
+GEMINI_LIST_DIR="${GEMINI_LIST_DIR:-${GEMINI_CAPSULE_DIR}/lists}"
+
+# Buffer stdin
+TMPFILE=$(mktemp /tmp/mlisp-gemini-XXXXXX)
+trap 'rm -f "$TMPFILE"' EXIT
+cat > "$TMPFILE"
+
+# Extract headers
+SUBJECT=$(grep -i '^Subject:' "$TMPFILE" | head -1 | sed 's/^[Ss]ubject: //')
+FROM=$(grep -i '^From:' "$TMPFILE" | head -1 | sed 's/^[Ff]rom: //')
+DATE=$(date '+%Y-%m-%d')
+LIST=$(grep -i '^List-Id:' "$TMPFILE" | head -1 | \
+       sed 's/^[Ll]ist-[Ii]d: //' | tr -d '<>' | cut -d. -f1)
+
+LIST="${LIST:-unknown}"
+
+# Create list archive directory
+ARCHIVE_DIR="${GEMINI_LIST_DIR}/${LIST}"
+mkdir -p "$ARCHIVE_DIR"
+
+# Append to index.gmi
+INDEX="${ARCHIVE_DIR}/index.gmi"
+if [ ! -f "$INDEX" ]; then
+    printf '# %s archive\n\n=> gemini://. Back\n\n' "$LIST" > "$INDEX"
+fi
+
+# Save message as individual .gmi file
+MSGFILE="${ARCHIVE_DIR}/${DATE}-$(wc -l < "$INDEX").gmi"
+{
+    printf '# %s\n' "$SUBJECT"
+    printf 'From: %s\n' "$FROM"
+    printf 'Date: %s\n\n' "$DATE"
+    # Extract plain text body
+    awk '/^$/{found=1; next} found{print}' "$TMPFILE" | head -200
+} > "$MSGFILE"
+
+# Append link to index
+MSGLINK=$(basename "$MSGFILE")
+printf '=> %s %s — %s\n' "$MSGLINK" "$DATE" "$SUBJECT" >> "$INDEX"
+
+# Pass original message through unchanged
+cat "$TMPFILE"
+exit 0

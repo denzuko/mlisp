@@ -42,9 +42,7 @@
         (if (member :last-delivery-at sub)
             (setf (getf sub :last-delivery-at) now)
             (nconc sub (list :last-delivery-at now))))
-      (maybe-reset-bounce list-id address))))
-
-(defun windowed-increment-bounce (list-id address dsn-action)
+      (maybe-reset-bounce list-id address))))(defun windowed-increment-bounce (list-id address dsn-action)
   "Increment bounce count with time-windowing and soft/hard distinction.
    Returns T if subscriber should be removed (threshold exceeded)."
   (let* ((sub     (find-subscriber list-id address))

@@ -422,3 +422,55 @@
 (defun list-loop-header (list-id)
   "Return the X-Loop header field name for LIST-ID."
   (format nil "X-Loop-List-~:(~A~)" list-id))
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; File distribution archive helpers (#65)
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(defun distrib-archive-path (list-id)
+  "Return path to distribution file archive directory for LIST-ID."
+  (merge-pathnames (format nil "state/distrib/~A/" list-id) (mlisp-home)))
+
+(defun add-file-to-distrib (list-id source-path description)
+  "Copy SOURCE-PATH into the distrib archive for LIST-ID. Returns destination path."
+  (let* ((dir   (distrib-archive-path list-id))
+         (fname (file-namestring source-path))
+         (dest  (merge-pathnames fname dir)))
+    (ensure-directories-exist dest)
+    (with-open-file (in source-path :element-type '(unsigned-byte 8))
+      (with-open-file (out dest :direction :output :element-type '(unsigned-byte 8)
+                                :if-exists :supersede :if-does-not-exist :create)
+        (let ((buf (make-array 65536 :element-type '(unsigned-byte 8))))
+          (loop for n = (read-sequence buf in) while (> n 0)
+                do (write-sequence buf out :end n)))))
+    (let* ((lst   (find-list list-id))
+           (files (or (getf lst :distrib-files) '()))
+           (size  (with-open-file (f dest) (file-length f)))
+           (entry (list :name fname :path (namestring dest)
+                        :size size :date (iso8601-now)
+                        :description (or description ""))))
+      (if (member :distrib-files lst)
+          (setf (getf lst :distrib-files)
+                (cons entry (remove-if (lambda (e) (equal (getf e :name) fname))
+                                       files)))
+          (nconc lst (list :distrib-files (list entry))))
+      (save-state))
+    dest))
+(defun list-distrib-files (list-id)
+  "Return formatted file listing (AllFix FILES.BBS style)."
+  (let* ((dir   (distrib-archive-path list-id))
+         (files (when (probe-file dir)
+                  (directory (merge-pathnames "*" dir)))))
+    (if files
+        (with-output-to-string (s)
+          (format s "Files available from ~A:~%~%" list-id)
+          (format s "~-30A ~8A  ~10A  ~A~%" "Filename" "Size" "Date" "Description")
+          (format s "~30,,,'-<~>  ~8,,,'-<~>  ~10,,,'-<~>  ~A~%" "" "" "" "")
+          (dolist (f files)
+            (let* ((name (file-namestring f))
+                   (size (ignore-errors (with-open-file (s f) (file-length s))))
+                   (size-str (if size (format nil "~AK" (ceiling size 1024)) "?")))
+              (format s "~-30A ~8A~%" name size-str)))
+          (format s "~%To retrieve a file: send 'get ~A <filename>' to ~A~%"
+                  list-id (list-request-address list-id)))
+        (format nil "No files available from ~A.~%" list-id))))

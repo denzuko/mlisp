@@ -9,6 +9,10 @@
 
 (in-package #:mlisp-distrib)
 
+;;; Forward declarations
+(declaim (special mlisp:*mlisp-home-override*))
+(declaim (ftype (function (t t) t) mlisp:audit-append mlisp:find-list))
+
 (defun file-mime-type (filename)
   "Return a MIME type string based on file extension."
   (let* ((name  (string-downcase filename))

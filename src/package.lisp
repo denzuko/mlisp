@@ -88,6 +88,23 @@
    #:clear-expired-pending
    #:send-subscribe-challenge
    #:extract-confirm-token
+   ;; Plugin filters
+   #:invoke-filter-chain
+   #:invoke-single-filter
+   ;; AllFix/distrib
+   #:add-file-to-distrib
+   #:distrib-archive-path
+   ;; Request handlers
+   #:handle-info-command
+   #:handle-who-command
+   #:handle-query-command
+   #:handle-set-delivery-command
+   #:handle-search-command
+   #:handle-index-command
+   #:handle-get-archive-command
+   #:handle-file-index-command
+   #:cl-tokenize
+   #:extract-list-arg
    ;; Rate limiting
    #:rate-limit-exceeded-p
    ;; Embargo

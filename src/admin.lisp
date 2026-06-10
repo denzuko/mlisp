@@ -16,6 +16,9 @@
 
 (in-package #:mlisp-admin)
 
+;;; Forward special declarations
+(declaim (special mlisp:*state* mlisp:*mlisp-home-override*))
+
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Seed data for init subcommand
 ;;; ─────────────────────────────────────────────────────────────────────────────
@@ -964,6 +967,7 @@
                        (when p (nth (1+ p) args))))
         (incl-nomail (member "--include-nomail" args :test #'string=))
         (incl-bounce (member "--include-bounces" args :test #'string=)))
+    (declare (ignore incl-bounce))
     (unless list-id
       (format *error-output* "mlisp-admin: export-csv requires <list-id>~%")
       (return-from cmd-export-csv 1))
@@ -1076,6 +1080,33 @@
       (format t "  subscribed:   ~A~%" subscribed)
       (format t "  unsubscribed: ~A~%" unsubscribed)
       (format t "  bounced/removed: ~A~%" bounced)
+      0)))
+
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Subcommand: hatch (#65) — add file to distrib archive + announce
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(defun cmd-hatch (args)
+  "hatch <list-id> <file> [--description 'text']
+   Add FILE to the distrib archive for LIST-ID and optionally announce it."
+  (let ((list-id (first args))
+        (file    (second args))
+        (desc    (let ((p (position "--description" args :test #'string=)))
+                   (when p (nth (1+ p) args)))))
+    (unless (and list-id file)
+      (format *error-output* "mlisp-admin: hatch requires <list-id> <file>~%")
+      (return-from cmd-hatch 1))
+    (unless (probe-file file)
+      (format *error-output* "mlisp-admin: file not found: ~A~%" file)
+      (return-from cmd-hatch 1))
+    (mlisp:load-state)
+    (unless (mlisp:find-list list-id)
+      (format *error-output* "mlisp-admin: unknown list ~A~%" list-id)
+      (return-from cmd-hatch 1))
+    (let ((dest (mlisp:add-file-to-distrib list-id file desc)))
+      (format t "Hatched ~A into ~A~%" file list-id)
+      (format t "Archive path: ~A~%" dest)
       0)))
 
 (defun cmd-set-option (args)
@@ -1411,6 +1442,7 @@ Config resolution order:
                     ((string= subcmd "rename-list")      (cmd-rename-list subcmd-args))
                     ((string= subcmd "copy-list")        (cmd-copy-list subcmd-args))
                     ((string= subcmd "list-stats")       (cmd-list-stats subcmd-args))
+                    ((string= subcmd "hatch")            (cmd-hatch subcmd-args))
                                                                                                                         (t
                      (format *error-output*
                              "mlisp-admin: unknown subcommand ~S~%" subcmd)

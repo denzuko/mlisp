@@ -14,6 +14,8 @@
 
   (pushnew (truename here) asdf:*central-registry* :test #'equal)
 
+  (setf asdf:*compile-file-failure-behaviour* :warn)
+
   (handler-case
       (progn
         (format t "~&[build] Loading mlisp-admin via ASDF~%")

@@ -112,6 +112,22 @@ One of \fIhold\fR (default), \fIreject\fR, or \fIdiscard\fR.
 .B unsubscribe\-url
 HTTPS URL for RFC 8058 one\-click unsubscribe endpoint.
 .TP
+.B pre\-filter
+Path to a filter program (or space\-separated list) invoked before all processing.
+Exit 0 = pass; exit 1 = reject; exit 2 = hold; exit 3 = discard.
+.TP
+.B post\-filter
+Path to a filter program invoked after header assembly but before distribution.
+Exit 0 = continue (with modified message); any other exit = ignored.
+.TP
+.B search\-enabled
+.I true
+to enable \fIsearch\fR, \fIindex\fR, and \fIget\fR commands against the Maildir archive.
+.TP
+.B advertised
+.I true
+to allow the \fIwho\fR command to return the subscriber list.
+.TP
 .B archive\-url
 URL of the list archive (written to \fIList\-Archive:\fR header).
 .TP
@@ -157,6 +173,33 @@ Bulk remove subscribers from \fIfile\fR or standard input.
 .TP
 .B set\-nomail \fIlist\-id\fR \fIaddress\fR \fItrue\fR|\fIfalse\fR
 Set or clear the NOMAIL flag for a subscriber.
+.SS Subscriber self-service (via \-request address)
+The following commands are processed when a subscriber sends email to the
+\fI\-request\fR address.  These commands are for end users, not administrators.
+.TP
+.B info
+Send list description, addresses, and command reference to the sender.
+.TP
+.B who [\fIlist\-id\fR]
+Send the subscriber list if \fI:advertised t\fR; otherwise a not\-advertised notice.
+.TP
+.B query [\fIlist\-id\fR]
+Send the sender\(cqs own delivery settings (mode, NOMAIL flag, bounce count).
+.TP
+.B set \fIlist\-id\fR mail|nomail|digest
+Change the sender\(cqs delivery mode.
+.TP
+.B search \fIkeyword\fR [in \fIlist\-id\fR]
+Search the Maildir archive for messages matching \fIkeyword\fR (requires \fI:search\-enabled t\fR).
+.TP
+.B index [\fIlist\-id\fR]
+List available archived messages with subjects and dates.
+.TP
+.B get \fIlist\-id\fR \fIN\fR
+Retrieve archived message number \fIN\fR.
+.TP
+.B files [\fIlist\-id\fR]
+List files available in the \fI\-distrib\fR archive (AllFix FILES.BBS equivalent).
 .SS Confirmation tokens
 .TP
 .B show\-pending \fIlist\-id\fR
@@ -224,6 +267,10 @@ to each named member list.
 .TP
 .B add\-distrib \fIlist\-id\fR \fIfile\fR
 Add a file to the distribution archive for \fIlist\-id\fR.
+.TP
+.B hatch \fIlist\-id\fR \fIfile\fR [\fI\-\-description text\fR]
+Add \fIfile\fR to the distribution archive and announce it to all subscribers.
+Equivalent to AllFix HATCH/TIC processing.
 .SS VERP
 .TP
 .B verp\-decode \fIverp\-address\fR

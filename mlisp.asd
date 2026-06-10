@@ -40,6 +40,8 @@
      (:file "commands")
      (:file "troff")
      (:file "mta")
+     (:file "filters")
+     (:file "requests")
      (:file "metrics")
      (:file "bounce")
      (:file "daemon")

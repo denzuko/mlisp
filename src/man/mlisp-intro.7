@@ -489,6 +489,90 @@ Compliance footer template
 .TP
 .I $MLISP_HOME/var/archive/<list>/
 Maildir archive (if enabled)
+.SH 15. PLUGIN FILTERS
+mlisp supports external filter programs at two pipeline hook points.
+Filters are arbitrary executables that receive the message on stdin and
+return a modified (or unmodified) message on stdout.
+.PP
+.B Filter exit code contract:
+.TP
+.B 0
+Pass\&\&\&\&\&\&\&\& Continue with stdout as the new message.
+.TP
+.B 1
+Reject\&\&\&\&\&\& mlisp exits 1; sendmail returns a bounce to sender.
+.TP
+.B 2
+Hold\&\&\&\&\&\&\&\& Message goes to the moderation queue; mlisp exits 0.
+.TP
+.B 3
+Discard\&\&\&\& Message is silently dropped; mlisp exits 0.
+.PP
+Configure filters per list:
+.PP
+.RS
+.nf
+# Spam filter before all processing:
+mlisp\-admin set\-option mylist pre\-filter /usr/local/lib/mlisp/filters/spamassassin
+
+# Gemini archive after distribution headers are assembled:
+mlisp\-admin set\-option mylist post\-filter /usr/local/lib/mlisp/filters/gemini\-archive
+
+# Multiple filters (space\-separated, run in order; first non\-zero stops chain):
+mlisp\-admin set\-option mylist pre\-filter "/path/spamassassin /path/clamav"
+.fi
+.RE
+.PP
+Note: header names are stored in UPPERCASE by the mlisp parser.
+Filter scripts that match or modify headers must use uppercase field names
+(e.g., \fISUBJECT:\fR not \fISubject:\fR).
+.PP
+Example filter scripts are in \fIetc/filters/\fR:
+\fIspamassassin\fR (SpamAssassin pre\-filter),
+\fIclamav\fR (ClamAV pre\-filter),
+\fIgemini\-archive\fR (post\-filter that writes to a Gemini capsule).
+.SH 16. SUBSCRIBER SELF\-SERVICE COMMANDS
+Subscribers send commands to the \fI\-request\fR address by email.
+.PP
+.TP
+.B info
+List description, posting rules, and command reference.
+.TP
+.B who [\fIlist\fR]
+Subscriber list (only if \fI:advertised t\fR; default is private).
+.TP
+.B query [\fIlist\fR]
+Your own delivery settings: mode, NOMAIL status, bounce count.
+.TP
+.B set \fIlist\fR mail|nomail|digest
+Change your delivery mode.  \fIset list mail\fR resumes after NOMAIL.
+.TP
+.B search \fIkeyword\fR [in \fIlist\fR]
+Search the Maildir archive.  Requires \fI:search\-enabled t\fR:
+.RS
+mlisp\-admin set\-option mylist search\-enabled true
+.RE
+.TP
+.B index [\fIlist\fR]
+List archived messages with sequence numbers.
+.TP
+.B get \fIlist\fR \fIN\fR
+Retrieve archived message \fIN\fR (from \fBindex\fR output).
+.TP
+.B files [\fIlist\fR]
+List files in the \fI\-distrib\fR archive.
+.SH 17. FILE DISTRIBUTION (ALLFIX\-COMPATIBLE)
+The \fI\-distrib\fR subgroup handles file distribution.
+.PP
+Add a file to the archive and announce it (AllFix HATCH equivalent):
+.PP
+.RS
+mlisp\-admin hatch myproject\-distrib release\-1.0.tar.gz \-\-description "Release 1.0"
+.RE
+.PP
+Subscribers can retrieve files by sending \fBfiles\fR or \fBget myproject\-distrib \fIN\fR
+to the \fI\-request\fR address.
+The magic filename \fIFILES.BBS\fR (AllFix convention) is served by the \fBfiles\fR command.
 .SH SEE ALSO
 .BR mlisp (1),
 .BR mlisp\-admin (1),

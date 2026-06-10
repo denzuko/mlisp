@@ -15,6 +15,9 @@
 
   (pushnew (truename here) asdf:*central-registry* :test #'equal)
 
+  ;; Treat warnings as warnings, not errors (style warnings are non-fatal)
+  (setf asdf:*compile-file-failure-behaviour* :warn)
+
   (handler-case
       (progn
         (format t "~&[build] Loading mlisp via ASDF~%")

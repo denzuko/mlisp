@@ -1,0 +1,64 @@
+#!/bin/sh
+# etc/filters/spamassassin — mlisp pre-filter: SpamAssassin spam check
+#
+# Install:
+#   mlisp-admin set-option <list-id> pre-filter /path/to/filters/spamassassin
+#
+# Requirements: spamc(1) (SpamAssassin client daemon)
+#
+# Exit codes (mlisp filter contract):
+#   0 = pass (message delivered with X-Spam-* headers added)
+#   1 = reject (score >= REJECT_SCORE)
+#   2 = hold for moderation (score >= HOLD_SCORE)
+#   3 = discard silently (score >= DISCARD_SCORE)
+
+HOLD_SCORE=5.0
+REJECT_SCORE=10.0
+DISCARD_SCORE=20.0
+
+SPAMC="${SPAMC:-/usr/bin/spamc}"
+
+if [ ! -x "$SPAMC" ]; then
+    # spamc not available — pass through without scoring
+    cat
+    exit 0
+fi
+
+# Run spamc and capture output
+TMPFILE=$(mktemp /tmp/mlisp-spam-XXXXXX)
+trap 'rm -f "$TMPFILE"' EXIT
+
+"$SPAMC" -t 30 > "$TMPFILE"
+SPAMC_EXIT=$?
+
+if [ $SPAMC_EXIT -ne 0 ]; then
+    # spamd not running or error — pass through
+    cat "$TMPFILE"
+    exit 0
+fi
+
+# Extract score from X-Spam-Status header
+SCORE=$(grep -i '^X-Spam-Status:' "$TMPFILE" | grep -oE 'score=[0-9.-]+' | cut -d= -f2)
+if [ -z "$SCORE" ]; then
+    cat "$TMPFILE"
+    exit 0
+fi
+
+# Compare scores (use awk for float comparison)
+ACTION=$(awk -v score="$SCORE" \
+             -v discard="$DISCARD_SCORE" \
+             -v reject="$REJECT_SCORE" \
+             -v hold="$HOLD_SCORE" \
+    'BEGIN {
+        if (score+0 >= discard+0) print "discard"
+        else if (score+0 >= reject+0) print "reject"
+        else if (score+0 >= hold+0) print "hold"
+        else print "pass"
+    }')
+
+case "$ACTION" in
+    discard) exit 3 ;;
+    reject)  exit 1 ;;
+    hold)    cat "$TMPFILE"; exit 2 ;;
+    *)       cat "$TMPFILE"; exit 0 ;;
+esac
