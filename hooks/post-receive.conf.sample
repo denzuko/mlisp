@@ -1,0 +1,31 @@
+# hooks/post-receive.conf.sample — CI hook configuration
+#
+# Copy to hooks/post-receive.conf and edit.
+# Sourced by hooks/post-receive if present.
+#
+# This file is NOT tracked by git once deployed to your bare repo.
+# Keep it outside the repository directory.
+
+# Project name (used in email subjects)
+CI_PROJECT="mlisp"
+
+# Branch to run CI on
+CI_BRANCH="main"
+
+# sendmail(8) compatible binary
+CI_SENDMAIL="/usr/sbin/sendmail"
+
+# Address to send CI results to (your -commits list)
+# Leave empty to disable email notifications
+CI_COMMITS_ADDRESS="mlisp-commits@lists.example.com"
+
+# Address for automatic bug reports on failure (your mlisp-bugs-submit)
+# Leave empty to disable automatic bug filing
+# Requires mlisp-bugs to be configured (issue #69)
+CI_BUGS_ADDRESS="mlisp-bugs-submit@lists.example.com"
+
+# From address for CI emails
+CI_FROM="ci@lists.example.com"
+
+# Working directory for test runs (cleaned up after each run)
+CI_WORKDIR="/tmp/mlisp-ci-$$"

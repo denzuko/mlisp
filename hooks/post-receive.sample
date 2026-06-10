@@ -1,0 +1,119 @@
+#!/bin/sh
+# hooks/post-receive.sample — mlisp post-receive CI hook
+#
+# Deploy to your bare git repo:
+#   cp hooks/post-receive.sample /path/to/repo.git/hooks/post-receive
+#   chmod +x /path/to/repo.git/hooks/post-receive
+#   cp -r ci/ /path/to/repo.git/ci/
+#
+# Compatible with: bare git, cgit, Gitea/Forgejo custom hooks, sr.ht
+# Does NOT require: GitHub Actions, Jenkins, root access, open ports
+#
+# ─── Configuration ────────────────────────────────────────────────────────────
+#
+# Set these in your environment or edit below:
+
+: "${CI_PROJECT:=mlisp}"
+: "${CI_BRANCH:=main}"
+: "${CI_SENDMAIL:=/usr/sbin/sendmail}"
+: "${CI_COMMITS_ADDRESS:=}"       # e.g. mlisp-commits@lists.example.com
+: "${CI_BUGS_ADDRESS:=}"          # e.g. mlisp-bugs-submit@lists.example.com
+: "${CI_FROM:=ci@example.com}"
+: "${CI_WORKDIR:=/tmp/ci-$$}"
+
+# Source local config if present
+HOOK_DIR="$(dirname "$0")"
+[ -f "${HOOK_DIR}/post-receive.conf" ] && . "${HOOK_DIR}/post-receive.conf"
+
+# ─── Read updated refs ────────────────────────────────────────────────────────
+
+while read -r oldrev newrev refname; do
+    branch=$(echo "$refname" | sed 's|refs/heads/||')
+    [ "$branch" = "$CI_BRANCH" ] || continue
+
+    SHORTREV=$(echo "$newrev" | cut -c1-7)
+    SUBJECT=$(git log -1 --format="%s" "$newrev" 2>/dev/null || echo "(unknown)")
+    AUTHOR=$(git log -1 --format="%an <%ae>" "$newrev" 2>/dev/null || echo "unknown")
+
+    # ─── Checkout HEAD into workdir ───────────────────────────────────────────
+
+    rm -rf "$CI_WORKDIR"
+    mkdir -p "$CI_WORKDIR"
+    git archive "$newrev" | tar -x -C "$CI_WORKDIR"
+    cd "$CI_WORKDIR" || exit 1
+
+    # ─── Run test suite ───────────────────────────────────────────────────────
+
+    CI_LOG="${CI_WORKDIR}/ci.log"
+    if sh ci/run-tests.sh > "$CI_LOG" 2>&1; then
+        CI_STATUS="PASS"
+        PASS_COUNT=$(grep -c "^\[ci\].*passed" "$CI_LOG" || echo "?")
+        SUBJECT_LINE="[CI PASS] ${CI_PROJECT} ${SHORTREV}: ${SUBJECT}"
+        BODY="All tests passed on ${CI_PROJECT} ${SHORTREV}.
+
+Commit: ${newrev}
+Author: ${AUTHOR}
+Branch: ${branch}
+
+$(tail -5 "$CI_LOG")"
+    else
+        CI_STATUS="FAIL"
+        FIRST_FAIL=$(grep "^\[ci\] FAIL:" "$CI_LOG" | head -1 | sed 's/\[ci\] FAIL: //')
+        SUBJECT_LINE="[CI FAIL] ${CI_PROJECT} ${SHORTREV}: ${FIRST_FAIL}"
+        BODY="Test suite failed on ${CI_PROJECT} ${SHORTREV}.
+
+Commit: ${newrev}
+Author: ${AUTHOR}
+Branch: ${branch}
+Failure: ${FIRST_FAIL}
+
+--- Test output (last 40 lines) ---
+$(tail -40 "$CI_LOG")"
+    fi
+
+    # ─── Send result to commits list ──────────────────────────────────────────
+
+    if [ -n "$CI_COMMITS_ADDRESS" ]; then
+        printf 'From: %s\r\nTo: %s\r\nSubject: %s\r\n\r\n%s\r\n' \
+            "$CI_FROM" \
+            "$CI_COMMITS_ADDRESS" \
+            "$SUBJECT_LINE" \
+            "$BODY" \
+            | "$CI_SENDMAIL" "$CI_COMMITS_ADDRESS"
+    fi
+
+    # ─── Open bug on failure ──────────────────────────────────────────────────
+    # If mlisp-bugs is configured, submit a bug report automatically.
+    # The bug subject becomes the bug title.
+    # Close with: git send-email the fix, then email to <pkg>-bugs-N-done.
+
+    if [ "$CI_STATUS" = "FAIL" ] && [ -n "$CI_BUGS_ADDRESS" ]; then
+        BUG_BODY="Package: ${CI_PROJECT}
+Severity: important
+Version: ${SHORTREV}
+Reported-by: CI hook <${CI_FROM}>
+
+CI failure on ${CI_PROJECT} ${newrev} (${branch}).
+
+Author: ${AUTHOR}
+Commit: ${newrev}
+First failure: ${FIRST_FAIL}
+
+--- Test log ---
+$(tail -60 "$CI_LOG")"
+        printf 'From: %s\r\nTo: %s\r\nSubject: CI failure: %s\r\n\r\n%s\r\n' \
+            "$CI_FROM" \
+            "$CI_BUGS_ADDRESS" \
+            "${FIRST_FAIL}" \
+            "$BUG_BODY" \
+            | "$CI_SENDMAIL" "$CI_BUGS_ADDRESS"
+    fi
+
+    # ─── Cleanup ──────────────────────────────────────────────────────────────
+
+    cd /
+    rm -rf "$CI_WORKDIR"
+
+done
+
+exit 0
