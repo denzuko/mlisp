@@ -1,0 +1,4 @@
+# project system-file system-name [dependency ...]
+mlisp mlisp.asd mlisp
+mlisp mlisp-admin.asd mlisp-admin mlisp
+mlisp mlisp-distrib.asd mlisp-distrib mlisp

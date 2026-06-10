@@ -1,0 +1,2 @@
+# project url size file-md5 content-sha1 prefix [system-files ...]
+mlisp http://panix.com/~denzuko/dist/mlisp/2026-06-10/mlisp-2026-06-10.tgz 114089 960e6e0ee945ced654475bc10fa28bb8 7ec1148cb91278b1af3f0cef6bcb5b2f6f33c675 mlisp-2026-06-10 mlisp.asd mlisp-admin.asd mlisp-distrib.asd mlisp-bugs.asd
