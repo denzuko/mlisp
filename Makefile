@@ -109,3 +109,58 @@ docs: $(MAN1) $(MAN7)
 	done
 
 .PHONY: man docs
+
+# ─── Quicklisp dist ──────────────────────────────────────────────────────────
+
+DIST_VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null || date +%Y-%m-%d)
+DIST_PREFIX  = mlisp-$(DIST_VERSION)
+DIST_BASE_URL ?= http://panix.com/~denzuko/dist/mlisp
+DIST_DIR     = dist/$(DIST_VERSION)
+PANIX_USER  ?= denzuko
+PANIX_HOST  ?= panix.com
+PANIX_PATH  ?= public_html/dist/mlisp
+
+dist: dist/distinfo.txt $(DIST_DIR)/systems.txt $(DIST_DIR)/releases.txt
+
+dist/$(DIST_PREFIX).tgz:
+	@mkdir -p dist
+	git archive --prefix=$(DIST_PREFIX)/ HEAD | gzip > $@
+	@echo "Created $@ ($$(wc -c < $@) bytes)"
+
+$(DIST_DIR)/distinfo.txt: dist/$(DIST_PREFIX).tgz
+	@mkdir -p $(DIST_DIR)
+	@echo "name: mlisp"                                              > $@
+	@echo "version: $(DIST_VERSION)"                                >> $@
+	@echo "system-index-url: $(DIST_BASE_URL)/$(DIST_VERSION)/systems.txt" >> $@
+	@echo "release-index-url: $(DIST_BASE_URL)/$(DIST_VERSION)/releases.txt" >> $@
+	@echo "canonical-distinfo-url: $(DIST_BASE_URL)/distinfo.txt"  >> $@
+	@echo "dist-type: ql-dist"                                      >> $@
+	@echo "archive-base-url: $(DIST_BASE_URL)/$(DIST_VERSION)/"    >> $@
+	cp $(DIST_DIR)/distinfo.txt dist/distinfo.txt
+	@echo "Generated $@"
+
+$(DIST_DIR)/systems.txt:
+	@mkdir -p $(DIST_DIR)
+	@echo "mlisp mlisp.asd mlisp"               > $@
+	@echo "mlisp mlisp-admin.asd mlisp-admin mlisp" >> $@
+	@echo "mlisp mlisp-distrib.asd mlisp-distrib mlisp" >> $@
+	@echo "Generated $@"
+
+$(DIST_DIR)/releases.txt: dist/$(DIST_PREFIX).tgz $(DIST_DIR)/distinfo.txt
+	$(eval SIZE := $(shell wc -c < dist/$(DIST_PREFIX).tgz))
+	$(eval MD5  := $(shell md5sum dist/$(DIST_PREFIX).tgz | cut -d' ' -f1))
+	$(eval SHA1 := $(shell sha1sum dist/$(DIST_PREFIX).tgz | cut -d' ' -f1))
+	@echo "mlisp $(DIST_BASE_URL)/$(DIST_VERSION)/$(DIST_PREFIX).tgz $(SIZE) $(MD5) $(SHA1) $(DIST_PREFIX) mlisp.asd mlisp-admin.asd mlisp-distrib.asd" > $@
+	cp dist/$(DIST_PREFIX).tgz $(DIST_DIR)/$(DIST_PREFIX).tgz
+	@echo "Generated $@ ($(SIZE) bytes, md5=$(MD5))"
+
+dist/distinfo.txt: $(DIST_DIR)/distinfo.txt
+
+dist-upload: dist
+	rsync -avz --delete dist/ $(PANIX_USER)@$(PANIX_HOST):$(PANIX_PATH)/
+	@echo "Uploaded to $(PANIX_HOST):$(PANIX_PATH)/"
+
+dist-clean:
+	rm -rf dist/
+
+.PHONY: dist dist-upload dist-clean

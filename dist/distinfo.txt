@@ -1,0 +1,7 @@
+name: mlisp
+version: 2026-06-10
+system-index-url: http://panix.com/~denzuko/dist/mlisp/2026-06-10/systems.txt
+release-index-url: http://panix.com/~denzuko/dist/mlisp/2026-06-10/releases.txt
+canonical-distinfo-url: http://panix.com/~denzuko/dist/mlisp/distinfo.txt
+dist-type: ql-dist
+archive-base-url: http://panix.com/~denzuko/dist/mlisp/2026-06-10/
