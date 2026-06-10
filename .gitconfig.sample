@@ -1,0 +1,63 @@
+# .gitconfig.sample — mlisp contributor git configuration
+#
+# Copy relevant sections into your ~/.gitconfig
+# Replace example.com addresses with your actual list addresses.
+
+[format]
+	subjectPrefix = PATCH mlisp
+	coverLetter = auto
+	numbered = auto
+
+[sendemail]
+	to = mlisp-devel@lists.example.com
+	confirm = always
+	chainreplyto = false
+	annotate = yes
+	suppresscc = self
+
+# ─── MUA: msmtp (recommended for users without a local MTA) ──────────────────
+# Install: apt install msmtp  /  brew install msmtp
+# Then:
+#
+# [sendemail]
+#	smtpserver = /usr/bin/msmtp
+#
+# ~/.msmtprc:
+# account default
+# host mail.example.com
+# port 587
+# auth on
+# user you@example.com
+# password yourpassword
+# tls on
+
+# ─── MUA: direct SMTP (Gmail) ─────────────────────────────────────────────────
+#
+# [sendemail]
+#	smtpserver = smtp.gmail.com
+#	smtpserverport = 587
+#	smtpencryption = tls
+#	smtpuser = you@gmail.com
+# Then: git send-email will prompt for password (or use credential helper)
+
+# ─── MUA: direct SMTP (Fastmail) ─────────────────────────────────────────────
+#
+# [sendemail]
+#	smtpserver = smtp.fastmail.com
+#	smtpserverport = 587
+#	smtpencryption = tls
+#	smtpuser = you@fastmail.com
+
+# ─── MUA: local Postfix relay ────────────────────────────────────────────────
+#
+# [sendemail]
+#	smtpserver = /usr/sbin/sendmail
+
+# ─── Signing ─────────────────────────────────────────────────────────────────
+# Always sign off commits:
+#
+# [commit]
+#	gpgSign = false   # set true if you want GPG-signed commits
+#
+# Add sign-off automatically:
+# alias: git config alias.cs "commit --signoff"

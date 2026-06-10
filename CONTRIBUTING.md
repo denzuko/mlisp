@@ -1,57 +1,107 @@
 # Contributing to mlisp
 
-## Workflow
+Patches are submitted by email to the development list.  No GitHub account
+required.  No web UI required.  The workflow is the one the Linux kernel,
+Git, and OpenBSD have used for decades: format a patch, send it to the list,
+discuss it on the list, maintainer applies it.
 
-1. Open a GitHub Issue describing the problem or feature
-2. Branch from `main`: `fix/N-short-description` or `feat/N-short-description`
-3. Write failing BDD specs (BATS) **before** touching source
-4. Implement the fix; all tests must pass before PR
-5. Update `CHANGELOG.md` under `[Unreleased]`
-6. Push branch, open PR — review happens on GitHub, not local merge
-7. After merge, tag is cut by maintainer
+If the project also mirrors to GitHub, pull requests remain functional —
+the maintainer may apply them via `git am` from the PR's email notification.
+Patches submitted by email take precedence.
 
-## Commit messages
+## BDD spec requirement
 
-```
-type(scope): short description under 72 chars
+Every change requires tests written **before** the implementation:
 
-Body wrapping at 72 chars.
-Reference issue with Fixes #N.
-```
+1. Write a failing BATS spec (`test/bats/`) or FiveAM unit test
+2. Confirm it fails (RED)
+3. Implement the minimum code to pass it
+4. Run the full suite: `make test`
+5. No exceptions
 
-Types: `feat`, `fix`, `test`, `docs`, `chore`, `refactor`, `security`
+See existing specs for conventions. New features: BATS integration spec.
+Bug fixes: regression spec that reproduces the bug.
 
-## Test requirements
-
-Every PR must pass all four suites:
+## One-time git setup
 
 ```sh
-make test
+git config format.subjectPrefix "PATCH mlisp"
+git config sendemail.to "mlisp-devel@lists.example.com"
+git config sendemail.confirm always
+git config sendemail.chainreplyto false
 ```
 
-| Suite | File | Covers |
-|---|---|---|
-| FiveAM | `test/fiveam/test-mlisp.lisp` | Unit: parser, state, DSL |
-| BATS integration | `test/bats/test_mlisp.bats` | Pipeline end-to-end |
-| BATS regression | `test/bats/test_mlisp_regression.bats` | Known regression cases |
-| BATS compliance | `test/bats/test_mlisp_compliance.bats` | CAN-SPAM / GDPR / CASL |
+See `.gitconfig.sample` and `doc/send-email-setup.md` for MUA-specific
+configuration (msmtp, mutt, aerc, Thunderbird, Gmail relay).
 
-New compliance-affecting changes require new BATS specs in
-`test_mlisp_compliance.bats` citing the specific statute and section.
+## Submitting a patch
 
-## Compliance rule
+```sh
+# Single commit:
+git send-email HEAD~1
 
-Any change to `distribute-message`, subscriber state, or template
-rendering must include a compliance review comment citing the relevant
-statute. Do not remove the postal address footer, unsubscribe
-mechanism, audit log writes, or consent metadata.
+# Patch series (3 commits) with cover letter:
+git format-patch --cover-letter -3 HEAD
+# edit 0000-cover-letter.patch
+git send-email 0000-*.patch 000[1-3]-*.patch
 
-## Branch protection
+# Revised version after feedback:
+git send-email --reroll-count=2 HEAD~1
+# Subject: [PATCH v2] your change
+```
 
-- `main` is protected; direct push forbidden
-- All checks must pass; at least one review required
-- Linear history (rebase before PR)
+## Patch conventions
 
-## Code of Conduct
+- **Commit message**: `component: short description` (imperative mood)
+- **Body**: explain the motivation — what problem, what was wrong, what changed
+- **Sign-off**: `git commit --signoff` (Developer Certificate of Origin)
+- **One logical change per patch**: a series is better than one large patch
+- **Tests first**: spec before code, always
 
-See [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+## Developer Certificate of Origin
+
+`git commit --signoff` certifies that the contribution is your own work
+or based on compatible licensed prior work and you have the right to
+submit it under BSD-2-Clause.
+
+## Review process
+
+Reply inline to the patch email on the list. Use scissors to separate
+comments from quoted patch text:
+
+```
+> +    (when (probe-file pgm)
+
+This should also check execute permission.
+
+--- >8 ---
+Reviewed-by: Your Name <email@example.com>
+```
+
+Accepted tags: `Reviewed-by:`, `Acked-by:`, `Tested-by:`, `Fixes: #N`.
+
+## Applying patches (maintainers)
+
+```sh
+git am < patch.eml         # from saved email
+git am < *.patch           # from format-patch output
+make test                  # run full suite before push
+```
+
+## Self-hosting
+
+To run this workflow without GitHub:
+
+1. Host a bare git repo (any POSIX host, no root needed)
+2. Deploy `hooks/post-receive.sample` as the post-receive hook
+3. Configure `hooks/post-receive.conf` with your -commits list address
+4. Set up mlisp with `add-namespace` for your project lists
+5. Run `mlisp-admin install-procmail` on your mail host
+
+See `doc/migration-github.md` for the full migration path, including
+cgit setup, mlisp-bugs issue tracking, and public-inbox archiving.
+
+## Bug reports
+
+File bugs by emailing the `-bugs-submit` address (once mlisp-bugs is
+deployed, issue #69). Until then: email -devel with `[BUG]` in the subject.
