@@ -1,102 +1,137 @@
 # Changelog
 
-## [0.3.0] — Unreleased
-
-### Added
-- **MIME inbound** (`src/mime.lisp`): strip HTML/multipart from inbound; outbound always 7-bit ASCII
-- **BCC delivery**: individual sendmail per subscriber; To: shows list address only
-- **RFC 2369 headers**: List-Unsubscribe, List-Subscribe, List-Post, List-Help, X-BeenThere, X-Mailing-List, Precedence: list
-- **-request addresses**: per-list command-only endpoint; `--mode request` CLI flag
-- **Bounce management** (`src/bounce.lisp`): RFC 3464 DSN detection; bounce-count threshold removal; `show-bounces`/`clear-bounces`
-- **Auto-subscribe**: `:auto-subscribe t` per list; `set-option` admin command
-- **Prometheus metrics** (`src/metrics.lisp`): OpenMetrics textfile; node_exporter compatible
-- **MDN/RRT headers**: `Disposition-Notification-To` + `Return-Receipt-To` on command replies (RFC 8098/3461)
-- **Unsubscribe synonyms**: `remove me`, `remove`, `signoff`, `opt-out` all trigger unsubscribe
-- **Daemon discrimination** (`src/daemon.lisp`): drop Return-Path: <>, MAILER-DAEMON, Auto-Submitted, Precedence: junk/bulk
-- **Dedup** (`src/dedup.lisp`): 24h Message-Id ring buffer per list; `show-dedup`/`clear-dedup`
-- **Moderator queue** (`src/modqueue.lisp`): held queue + `approve`/`reject`/`hold-queue` admin commands
-- **Digest mode** (`src/modqueue.lisp`): buffer + `flush-digest`; numbered Vol/Issue; cron-compatible
-- **Exploder** (`src/exploder.lisp`): list-of-lists fan-out; per-member RFC 2369 headers
-- **Maildir** (`src/maildir.lisp`): write-only Maildir spool for notmuch/mutt; atomic tmp→new
-- **mlisp-distrib** (`src/distrib.lisp`): new binary; MIME base64 file attachment distribution
-- **Hash at rest** (`src/gpg.lisp`): pure-CL SHA-256; `:hash-contacts t` stores only address digest
-- **GPG require-signed**: `:require-signed t` rejects unsigned posts; `gpg(1)` verification
-- **procmail integration**: `etc/procmailrc.sample`; `mlisp-admin install-procmail` with FROM_DAEMON guards
-- **XDG config** (`~/.config/mlisp/`): full XDG Base Dir Spec path resolution
-- **`--home` flag**: CLI override for all path resolution
-- **mlisp-admin**: 20+ subcommands covering all list/subscriber/config management
-- **ASDF systems**: `mlisp.asd`, `mlisp-test.asd`, `mlisp-admin.asd`, `mlisp-distrib.asd`
-
-### Test coverage: 275 tests (78 FiveAM + 197 BATS)
-
-[0.3.0]: https://github.com/denzuko/mlisp/compare/v0.2.0...HEAD
-
 All notable changes to mlisp are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.6.0] - 2026-06-10
+
+### Added
+- **Subscriber self-service commands** (`src/requests.lisp`): `info`, `who`
+  (gated by `:advertised`), `query` (own settings), `set mail|nomail|digest`
+- **BITNET-style archive search** (`src/requests.lisp`): `search <keyword>`,
+  `index`, `get <list> <N>` against Maildir archives; `:search-enabled` per list
+- **AllFix file distribution** (`src/state.lisp`): `files` command (FILES.BBS),
+  `mlisp-admin hatch` (add file + announce); `:distrib-files` state tracking
+- **Plugin filter pipeline** (`src/filters.lisp`): `:pre-filter` and
+  `:post-filter` hooks; exit codes 0=pass 1=reject 2=hold 3=discard;
+  space-separated filter chains; `invoke-filter-chain` / `invoke-single-filter`
+- **Example filters**: `etc/filters/spamassassin`, `etc/filters/clamav`,
+  `etc/filters/gemini-archive`, `etc/unsubscribe-cgi/unsub.sh`
+- **mlisp-admin hatch**: add file to distrib archive + announce to subscribers
+- 27 new BATS specs (`test_mlisp_v06.bats` + `test_mlisp_filters.bats`)
+
+### Fixed
+- `string-trim " \t"` trimming literal `t` from filter paths — fixed to
+  `(list #\Space #\Tab)` (classic CL footgun: `\t` in a string is `\` + `t`)
+- `string-to-message`: CRLF normalisation — strip `\r` before header parsing
+- `sb-posix:getpid` replaced with `(random 99999)` for standalone binary compat
+- Duplicate `windowed-increment-bounce` removed from `diagnose.lisp`
+- Forward declarations added to `distrib.lisp`, `metrics.lisp`
+- `*compile-file-failure-behaviour*` set to `:warn` in all build scripts
+
+### Test coverage: 416 tests (78 FiveAM + 338 BATS)
+
+## [0.5.0] - 2026-06-09
+
+### Added
+- **9 subgroups**: `:owner` (forward-only), `:security` (embargo-capable),
+  `:commits` (bot-post-only), `:users` (subscriber-writable) added to namespace model
+- **Attachment policy**: `:attachment-policy allow|strip|reject` per list
+- **Subject keyword filtering**: `:subject-allow` / `:subject-deny` patterns;
+  action `:hold|:reject|:discard`
+- **Message sequence numbering**: `:message-numbering t` adds `[list #NNN]`
+- **CSV subscriber export**: `mlisp-admin export-csv`; RFC 4180 with consent metadata
+- **List management ops**: `rename-list`, `copy-list`, `list-stats`
+- **Per-sender rate limiting**: rolling 24h window; `:max-posts-per-day N`;
+  action `:hold|:reject|:discard`; `state/ratelimit/` cache
+- **Embargo mode**: `mlisp-admin embargo <list> <ISO8601>` / `release-embargo`
+- **DKIM-Signature stripped** on redistribution (RFC 6376 §5)
+- **Authentication-Results** preserved as `X-Original-Authentication-Results`
+- **RFC 8058 one-click unsubscribe**: `List-Unsubscribe-Post` when
+  `:unsubscribe-url` configured; HTTPS URI first in `List-Unsubscribe`
+- **List-Id domain** derived from `:drop-address` (not hardcoded)
+- **List-Archive** and **List-Owner** headers when configured
+- **Complete manpages**: `mlisp(1)`, `mlisp-admin(1)`, `mlisp-intro(7)`,
+  `mlisp-distrib(1)`; `make man` target
+- 37 new BATS specs (`test_mlisp_v05.bats`)
+
+### Test coverage: 402 tests (78 FiveAM + 324 BATS)
+
+## [0.4.0] - 2026-06-09
+
+### Added
+- **SHA-256 hash contacts at rest**: `:hash-contacts t`; pure-CL SHA-256
+- **GPG require-signed**: `:require-signed t`; `gpg(1)` verification
+- **DMARC rewrite**: `:dmarc-rewrite auto|always|never`; DNS `_dmarc.` TXT lookup;
+  From-rewrite for `p=reject`/`p=quarantine` domains
+- **VERP bounce attribution**: VERP-encoded envelope sender; `verp-decode`
+- **LDIF export**: `export-ldif`; RFC 2849 `groupOfNames` for LDAP sync
+- **Diagnosis**: `mlisp-admin diagnose`; health report by email or stdout
+- **Double opt-in confirmation** (`src/confirm.lisp`): 32-char hex token;
+  configurable expiry (`:confirm-window-hours`); `:confirm-subscribe t|nil`
+- **Mass subscribe**: `add-sub-batch` (stdin or file, `Name <addr>` format)
+- **Multigram bounce threshold**: time-windowed (`:bounce-window-days`);
+  soft-bounce tracking; resets window on gap
+- 37 new BATS specs across two suites
+
+### Test coverage: 365 tests (78 FiveAM + 287 BATS)
+
+## [0.3.0] - 2026-06-08
+
+### Added
+- **MIME inbound** (`src/mime.lisp`): strip HTML/multipart; outbound 7-bit ASCII
+- **BCC delivery**: individual `sendmail(8)` per subscriber
+- **RFC 2369 headers**: `List-Unsubscribe`, `List-Subscribe`, `List-Post`,
+  `List-Help`, `X-BeenThere`, `X-Mailing-List`, `Precedence: list`
+- **`-request` addresses**: per-list command endpoint; `--mode request` flag
+- **Bounce management** (`src/bounce.lisp`): RFC 3464 DSN; threshold removal
+- **Auto-subscribe**: `:auto-subscribe t`
+- **Prometheus metrics** (`src/metrics.lisp`): OpenMetrics textfile
+- **Daemon discrimination** (`src/daemon.lisp`): drops `Return-Path: <>`,
+  `MAILER-DAEMON`, `Auto-Submitted`, `Precedence: junk/bulk`
+- **Dedup** (`src/dedup.lisp`): 24h Message-ID ring buffer; `show-dedup`/`clear-dedup`
+- **Moderator queue** (`src/modqueue.lisp`): `approve`/`reject`/`hold-queue`
+- **Digest mode**: buffer + `flush-digest`; numbered Vol/Issue
+- **Exploder** (`src/exploder.lisp`): list-of-lists fan-out
+- **Maildir** (`src/maildir.lisp`): write-only Maildir archive
+- **mlisp-distrib** (`src/distrib.lisp`): MIME base64 file distribution binary
+- **procmail integration**: `etc/procmailrc.sample`; `install-procmail`
+- **XDG config**: `~/.config/mlisp/` default; `--home` override
+- **mlisp-admin**: 20+ subcommands
+
+### Test coverage: 275 tests (78 FiveAM + 197 BATS)
 
 ## [0.2.0] - 2026-06-08
 
 ### Added
-- CAN-SPAM § 7704 compliance: physical postal address and unsubscribe
-  instructions in every distributed message footer
-- Subject line tagging `[list-id]` on outbound messages (§ 7704(a)(1))
-- GDPR Art.7 consent record: subscriber entries now store
-  `:subscribed-at` (ISO-8601) and `:consent-method`
+- CAN-SPAM § 7704 compliance: postal address + unsubscribe in every footer
+- Subject tagging `[list-id]` on outbound messages
+- GDPR Art.7 consent record: `:subscribed-at` + `:consent-method`
 - GDPR Art.30 ROPA: `state/audit.sexp` append-only event log
-  (subscribe, unsubscribe, post-distributed, post-rejected events)
-- GDPR Art.17 erasure: unsubscribe removes address immediately and
-  writes erasure event to audit log
-- CASL / LGPD / PECR / UK-GDPR coverage via same consent + erasure path
-- Templates: `{discuss,announce,devel}.footer.sexp` compliance footers
-- 23 new BATS compliance tests; FiveAM suite expanded to 53 tests
+- GDPR Art.17 erasure: unsubscribe writes erasure event
+- CASL / LGPD / PECR / UK-GDPR coverage via same path
+- 23 new BATS compliance tests
 
-### Changed
-- Subscriber records promoted from flat strings to plists with consent
-  metadata (state schema change — re-seed from `state/state.sexp`)
-- `distribute-message` now appends compliance footer to every outbound
-  message body and rewrites Subject header with list tag
+### Test coverage: 175 tests (53 FiveAM + 122 BATS)
 
 ## [0.1.0] - 2026-06-08
 
 ### Added
 - Initial implementation: standalone SBCL binary replacing smartlist
-- S-expression state engine (`state/state.sexp`) with discuss/announce/devel
+- S-expression state engine (`state/state.sexp`)
 - RFC 2822 header parser with CRLF tolerance
 - Loop detection via `X-Loop-List-<Name>` headers
-- Subscriber management: subscribe / unsubscribe / help commands
-- Routing to `denzuko+mlist-<list>@panix.com` drop addresses
-- troff -ms DSL compiled through `groff -ms -Tutf8 -P-c`
-- Nine template files (welcome/help/goodbye × 3 lists)
-- `MLISP_HOME` and `MLISP_SENDMAIL` runtime env-var overrides
+- subscribe / unsubscribe / help commands
+- troff -ms DSL templates
+- `MLISP_HOME` and `MLISP_SENDMAIL` runtime overrides
 - FiveAM unit tests (40), BATS integration (21), BATS regression (8)
 
-[Unreleased]: https://github.com/denzuko/mlisp/compare/v0.2.0...HEAD
+### Test coverage: 69 tests
+
+[0.6.0]: https://github.com/denzuko/mlisp/compare/v0.5.0...v0.6.0
+[0.5.0]: https://github.com/denzuko/mlisp/compare/v0.4.0...v0.5.0
+[0.4.0]: https://github.com/denzuko/mlisp/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/denzuko/mlisp/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/denzuko/mlisp/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/denzuko/mlisp/releases/tag/v0.1.0
-
-## [Unreleased]
-
-### Added
-- `etc/procmailrc.sample` — canonical sample procmail recipe file with one
-  block per configured list; use as reference or with install-procmail
-- `mlisp-admin install-procmail [--list <id>] [--dry-run]` — appends procmail
-  recipes to `~/.procmailrc` (creates file if absent); idempotent (skips
-  lists already present); `--list` filters to one list; `--dry-run` prints
-  without writing; uses `# mlisp: <id>` comment as idempotency marker
-- XDG Base Dir Spec path resolution for state and templates
-  (`$XDG_CONFIG_HOME/mlisp/`, `~/.config/mlisp/`, binary dir fallback)
-- `--home <dir>` CLI flag on both `mlisp` and `mlisp-admin` (highest priority)
-- `mlisp-admin` management binary with subcommands: `show-config`, `init`,
-  `list-lists`, `add-list`, `rm-list`, `list-subs`, `add-sub`, `rm-sub`
-- `mlisp-admin.asd` ASDF system definition
-- `build-admin.lisp` standalone build script
-- 29 new BATS specs (`test/bats/test_mlisp_config.bats`)
-
-### Fixed
-- `parse-common-flags` do-loop double-advance on `--home` value token
-- `cmd-init` path resolution (missing trailing slash in `merge-pathnames`)
-- Format strings with `~/` escaped as `~~/` (SBCL `~/fn/` directive parse)
-- `mta.lisp` `from-addr` IGNORE style-warning causing ASDF load abort
