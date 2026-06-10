@@ -8,6 +8,9 @@
 
 (in-package #:mlisp)
 
+;;; Forward declarations
+(declaim (special mlisp:*state*))
+
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; In-memory counters (reset to state on each invocation)
 ;;; ─────────────────────────────────────────────────────────────────────────────

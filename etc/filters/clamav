@@ -1,0 +1,43 @@
+#!/bin/sh
+# etc/filters/clamav — mlisp pre-filter: ClamAV virus scan
+#
+# Install:
+#   mlisp-admin set-option <list-id> pre-filter /path/to/filters/clamav
+#
+# Requirements: clamdscan(1) or clamscan(1)
+#
+# Exit codes (mlisp filter contract):
+#   0 = clean (pass through)
+#   1 = virus detected (reject — do NOT distribute infected mail)
+
+CLAMDSCAN="${CLAMDSCAN:-/usr/bin/clamdscan}"
+CLAMSCAN="${CLAMSCAN:-/usr/bin/clamscan}"
+
+# Buffer message to temp file (ClamAV needs seekable file)
+TMPFILE=$(mktemp /tmp/mlisp-clam-XXXXXX)
+trap 'rm -f "$TMPFILE"' EXIT
+
+cat > "$TMPFILE"
+
+# Prefer clamdscan (uses running daemon, faster)
+if [ -x "$CLAMDSCAN" ]; then
+    "$CLAMDSCAN" --quiet --no-summary "$TMPFILE" 2>/dev/null
+    SCAN_EXIT=$?
+elif [ -x "$CLAMSCAN" ]; then
+    "$CLAMSCAN" --quiet --no-summary "$TMPFILE" 2>/dev/null
+    SCAN_EXIT=$?
+else
+    # ClamAV not available — pass through with warning header
+    echo "X-Virus-Scan: skipped (ClamAV not available)"
+    cat "$TMPFILE"
+    exit 0
+fi
+
+if [ $SCAN_EXIT -ne 0 ]; then
+    # Virus found or scan error — reject
+    exit 1
+fi
+
+# Clean — pass through with scan header
+(echo "X-Virus-Scan: clean (ClamAV)"; cat "$TMPFILE")
+exit 0

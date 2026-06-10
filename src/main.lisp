@@ -2,6 +2,9 @@
 
 (in-package #:mlisp)
 
+;;; Forward special declarations for compile-time checking
+(declaim (special *mlisp-home-override* *process-mode*))
+
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Core processing pipeline
 ;;; ─────────────────────────────────────────────────────────────────────────────
@@ -110,6 +113,28 @@
            (audit-append (list :event :mail-resumed :list list-id :address from-addr))
            0)
           (t
+           ;; 3x. Pre-filter hook (plugin pipeline)
+           (let* ((pre-filt (getf (find-list list-id) :pre-filter))
+                  (filters  (cond ((null pre-filt) nil)
+                                  ((listp pre-filt) pre-filt)
+                                  (t (list pre-filt)))))
+
+             (when filters
+               (multiple-value-bind (new-headers new-body exit-code)
+                   (invoke-filter-chain filters headers body-lines)
+                 (case exit-code
+                   (0 (setf headers new-headers body-lines new-body)
+                      (format *error-output* "[DBG] Subject after filter: ~A~%"
+                              (mlisp::header-value headers "Subject")))
+                   (1 (audit-append (list :event :filter-rejected :list list-id))
+                      (return-from process-message 1))
+                   (2 (hold-message list-id headers body-lines)
+                      (audit-append (list :event :filter-held :list list-id))
+                      (return-from process-message 0))
+                   (3 (audit-append (list :event :filter-discarded :list list-id))
+                      (return-from process-message 0))
+                   (t (setf headers new-headers body-lines new-body))))))
+
            ;; 3y. Attachment policy enforcement
            (let ((att-result (enforce-attachment-policy list-id headers body-lines)))
              (case att-result
@@ -274,6 +299,30 @@
                       (set-subscriber-nomail (getf sibling :id) from-addr nil)))
                   (audit-append (list :event :mail-resumed :list list-id :address from-addr))
                   (return-from process-message 0))
+                 (:info
+                  (handle-info-command list-id from-addr body-lines)
+                  (return-from process-message 0))
+                 (:who
+                  (handle-who-command list-id from-addr body-lines)
+                  (return-from process-message 0))
+                 (:query
+                  (handle-query-command list-id from-addr body-lines)
+                  (return-from process-message 0))
+                 (:set-delivery
+                  (handle-set-delivery-command list-id from-addr body-lines)
+                  (return-from process-message 0))
+                 (:search
+                  (handle-search-command list-id from-addr body-lines)
+                  (return-from process-message 0))
+                 (:index
+                  (handle-index-command list-id from-addr body-lines)
+                  (return-from process-message 0))
+                 (:get-archive
+                  (handle-get-archive-command list-id from-addr body-lines)
+                  (return-from process-message 0))
+                 (:file-index
+                  (handle-file-index-command list-id from-addr body-lines)
+                  (return-from process-message 0))
                  (:diagnose
                   (handle-diagnose list-id from-addr)
                   (return-from process-message 0))
@@ -328,6 +377,7 @@
                  (return-from process-message 1)))
              ;; Bot verified — distribute directly without subscriber auth
              (let ((code (distribute-message list-id from-addr headers body-lines)))
+               (declare (ignore code))
                (record-metric list-id :distributed)
                (audit-append (list :event :distributed :list list-id :from from-addr)))
              (return-from process-message 0))
@@ -395,6 +445,16 @@
                    ;; 11. Normal distribution
                    (t
                     (maybe-archive-to-maildir list-id headers body-lines)
+                    ;; Post-filter hook (called once before distribution)
+                    (let* ((post-filt (getf (find-list list-id) :post-filter))
+                           (pfilters  (cond ((null post-filt) nil)
+                                            ((listp post-filt) post-filt)
+                                            (t (list post-filt)))))
+                      (when pfilters
+                        (multiple-value-bind (ph pb _exit)
+                            (invoke-filter-chain pfilters headers body-lines)
+                          (declare (ignore _exit))
+                          (setf headers ph body-lines pb))))
                     (distribute-message list-id from-addr headers body-lines)
                     (audit-append (list :event :post-distributed
                                         :list list-id :from from-addr))
