@@ -50,6 +50,7 @@
      (:file "modqueue")
      (:file "diagnose")
      (:file "exploder")
+     (:file "bugs")
      (:file "main"))))
 
   :in-order-to ((test-op (test-op "mlisp-test"))))
