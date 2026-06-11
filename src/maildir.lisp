@@ -18,7 +18,16 @@
          (pid  (or (ignore-errors
                      (progn (require :sb-posix)
                             (funcall (find-symbol "GETPID" :sb-posix))))
-                   (mod (get-universal-time) 999983)))
+                   ;; Read PID from /proc/self on Linux (no sb-posix needed)
+                   (or (ignore-errors
+                         (with-open-file (s "/proc/self/status")
+                           (loop for line = (read-line s nil nil)
+                                 while line
+                                 when (and (> (length line) 4)
+                                           (string= "Pid:" (subseq line 0 4)))
+                                 return (parse-integer line :start 4
+                                                        :junk-allowed t))))
+                       (random 999983))))
          (host (or (ignore-errors
                      (string-trim '(#\Space #\Newline #\Return)
                        (with-output-to-string (s)

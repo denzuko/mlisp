@@ -202,7 +202,8 @@
   "Return sorted list of message file pathnames in the Maildir archive."
   (let ((dir (maildir-path list-id)))
     (when (probe-file dir)
-      (sort (directory (merge-pathnames "*" dir))
+      (sort (directory (merge-pathnames
+                              (make-pathname :name :wild :type :wild) dir))
             #'string< :key #'namestring))))
 
 (defun read-message-headers (path)

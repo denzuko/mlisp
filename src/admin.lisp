@@ -1377,6 +1377,172 @@ Config resolution order:
   --home > $MLISP_HOME > $XDG_CONFIG_HOME/mlisp/ > ~~/.config/mlisp/ > binary dir
 "))
 
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Subcommands: mlisp-bugs package management (#69, #70)
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(defun cmd-bugs-add-package (args)
+  "bugs-add-package <pkg> <submit-addr> [--owner <addr>]"
+  (let ((pkg    (first args))
+        (submit (second args))
+        (owner  (let ((p (position "--owner" args :test #'string=)))
+                  (when p (nth (1+ p) args)))))
+    (unless (and pkg submit)
+      (format *error-output* "mlisp-admin: bugs-add-package requires <pkg> <submit-addr>~%")
+      (return-from cmd-bugs-add-package 1))
+    (handler-case
+        (progn
+          (mlisp:add-bugs-package pkg submit :owner-address owner)
+          (format t "Registered bug package ~A (~A)~%" pkg submit)
+          0)
+      (error (e)
+        (format *error-output* "mlisp-admin: ~A~%" e) 1))))
+
+(defun cmd-bugs-list-packages (args)
+  (declare (ignore args))
+  (mlisp:load-state)
+  (let ((pkgs (mlisp:bugs-packages)))
+    (if pkgs
+        (dolist (p pkgs)
+          (format t "~A  submit=~A  counter=~A  owner=~A~%"
+                  (getf p :package)
+                  (getf p :submit-address)
+                  (getf p :bug-counter)
+                  (or (getf p :owner-address) "(none)")))
+        (format t "(no bug packages registered)~%"))
+    0))
+
+(defun cmd-bugs-show (args)
+  "bugs-show <pkg> <bug-id>"
+  (let ((pkg (first args))
+        (id  (when (second args) (parse-integer (second args) :junk-allowed t))))
+    (unless (and pkg id)
+      (format *error-output* "mlisp-admin: bugs-show requires <pkg> <id>~%")
+      (return-from cmd-bugs-show 1))
+    (mlisp:load-state)
+    (let ((state (mlisp:bugs-derive-state pkg id)))
+      (if state
+          (progn
+            (format t "Bug #~A: ~A~%" (getf state :id) (getf state :title))
+            (format t "  Status:   ~(~A~)~%" (getf state :status))
+            (format t "  Severity: ~A~%" (getf state :severity))
+            (format t "  Tags:     ~{~A~^ ~}~%" (or (getf state :tags) '()))
+            (format t "  Owner:    ~A~%" (or (getf state :owner) "(unassigned)"))
+            (format t "  Reporter: ~A~%" (or (getf state :reported-by) ""))
+            (format t "  Date:     ~A~%" (or (getf state :date) ""))
+            0)
+          (progn
+            (format *error-output* "mlisp-admin: bug ~A #~A not found~%" pkg id)
+            1)))))
+
+(defun cmd-bugs-list (args)
+  "bugs-list <pkg> [--open|--closed|--severity S|--tag T]"
+  (let ((pkg      (first args))
+        (open-only   (member "--open"   args :test #'string=))
+        (closed-only (member "--closed" args :test #'string=))
+        (sev-filter  (let ((p (position "--severity" args :test #'string=)))
+                       (when p (nth (1+ p) args))))
+        (tag-filter  (let ((p (position "--tag" args :test #'string=)))
+                       (when p (nth (1+ p) args)))))
+    (unless pkg
+      (format *error-output* "mlisp-admin: bugs-list requires <pkg>~%")
+      (return-from cmd-bugs-list 1))
+    (mlisp:load-state)
+    (let ((total (mlisp:bugs-package-counter pkg)))
+      (loop for n from 1 to total
+            for state = (mlisp:bugs-derive-state pkg n)
+            when (and state
+                      (or (not open-only)   (eq (getf state :status) :open))
+                      (or (not closed-only) (eq (getf state :status) :closed))
+                      (or (null sev-filter)
+                          (string-equal (getf state :severity) sev-filter))
+                      (or (null tag-filter)
+                          (member tag-filter (getf state :tags) :test #'string-equal)))
+            do (format t "#~3D [~7A] ~9A ~A~%"
+                       (getf state :id)
+                       (getf state :status)
+                       (getf state :severity)
+                       (getf state :title))))
+    0))
+
+(defun cmd-bugs-report (args)
+  "bugs-report <pkg> [--open|--closed|--severity S|--tag T]"
+  (let ((pkg      (first args))
+        (open-only   (when (member "--open"   args :test #'string=) t))
+        (closed-only (when (member "--closed" args :test #'string=) t))
+        (sev-filter  (let ((p (position "--severity" args :test #'string=)))
+                       (when p (nth (1+ p) args))))
+        (tag-filter  (let ((p (position "--tag" args :test #'string=)))
+                       (when p (nth (1+ p) args)))))
+    (unless pkg
+      (format *error-output* "mlisp-admin: bugs-report requires <pkg>~%")
+      (return-from cmd-bugs-report 1))
+    (mlisp:load-state)
+    (write-string
+     (mlisp:bugs-generate-report pkg
+                                  :open-only   open-only
+                                  :closed-only closed-only
+                                  :severity-filter sev-filter
+                                  :tag-filter      tag-filter))
+    0))
+
+(defun cmd-install-bugs-procmail (args)
+  "install-bugs-procmail <pkg> [--dry-run]"
+  (let* ((pkg      (first args))
+         (dry-run  (member "--dry-run" args :test #'string=))
+         (home     (mlisp:mlisp-home))
+         (bugs-bin (merge-pathnames "bin/mlisp-bugs" home)))
+    (unless pkg
+      (format *error-output* "mlisp-admin: install-bugs-procmail requires <pkg>~%")
+      (return-from cmd-install-bugs-procmail 1))
+    (mlisp:load-state)
+    (let* ((pkg-cfg (mlisp:find-bugs-package pkg))
+           (submit  (or (getf pkg-cfg :submit-address)
+                        (format nil "~A-bugs-submit@example.com" pkg)))
+           ;; Derive control address: strip -submit suffix, add -control
+           (ctrl    (let* ((parts  (mlisp::split-string submit #\@))
+                           (prefix (first parts))
+                           ;; Remove trailing -submit if present
+                           (base   (if (and (>= (length prefix) 7)
+                                           (string= "-submit"
+                                                    (subseq prefix (- (length prefix) 7))))
+                                       (subseq prefix 0 (- (length prefix) 7))
+                                       prefix)))
+                      (format nil "~A-control@~A"
+                              base
+                              (or (second parts) "example.com"))))
+           (recipes
+            (format nil
+                    "# mlisp-bugs: ~A~%~
+                     :0~%~
+                     * ^TO_~A~%~
+                     | ~A --home ~A --mode submit ~A~%~%~
+                     # mlisp-bugs: ~A (replies)~%~
+                     :0~%~
+                     * ^TO_~A-[0-9]+-done@~%~
+                     | ~A --home ~A --mode close ~A~%~%~
+                     :0~%~
+                     * ^TO_~A-[0-9]+@~%~
+                     | ~A --home ~A --mode append ~A~%~%~
+                     # mlisp-bugs: ~A (control)~%~
+                     :0~%~
+                     * ^TO_~A~%~
+                     | ~A --home ~A --mode control ~A~%~%"
+                    pkg submit bugs-bin home pkg
+                    pkg submit bugs-bin home pkg
+                    submit bugs-bin home pkg
+                    pkg ctrl bugs-bin home pkg)))
+      (if dry-run
+          (write-string recipes)
+          (let ((procmailrc (merge-pathnames ".procmailrc" (user-homedir-pathname))))
+            (with-open-file (f procmailrc :direction :output
+                                          :if-exists :append
+                                          :if-does-not-exist :create)
+              (write-string recipes f))
+            (format t "Appended ~A bug recipes to ~A~%" pkg procmailrc)))
+      0)))
+
 (defun admin-main ()
   "Entry point for mlisp-admin binary."
   (let ((args (cdr sb-ext:*posix-argv*)))
@@ -1442,6 +1608,12 @@ Config resolution order:
                     ((string= subcmd "rename-list")      (cmd-rename-list subcmd-args))
                     ((string= subcmd "copy-list")        (cmd-copy-list subcmd-args))
                     ((string= subcmd "list-stats")       (cmd-list-stats subcmd-args))
+                    ((string= subcmd "bugs-add-package")  (cmd-bugs-add-package subcmd-args))
+                    ((string= subcmd "bugs-list-packages")(cmd-bugs-list-packages subcmd-args))
+                    ((string= subcmd "bugs-list")         (cmd-bugs-list subcmd-args))
+                    ((string= subcmd "bugs-show")         (cmd-bugs-show subcmd-args))
+                    ((string= subcmd "bugs-report")       (cmd-bugs-report subcmd-args))
+                    ((string= subcmd "install-bugs-procmail") (cmd-install-bugs-procmail subcmd-args))
                     ((string= subcmd "hatch")            (cmd-hatch subcmd-args))
                                                                                                                         (t
                      (format *error-output*

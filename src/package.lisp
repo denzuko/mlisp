@@ -93,6 +93,27 @@
    #:invoke-single-filter
    ;; AllFix/distrib
    #:add-file-to-distrib
+   ;; mlisp-bugs (#69)
+   #:bugs-packages
+   #:find-bugs-package
+   #:add-bugs-package
+   #:bugs-package-counter
+   #:bugs-next-id
+   #:bugs-derive-state
+   #:bugs-list-open
+   #:bugs-list-closed
+   #:bug-exists-p
+   #:bugs-archive-message
+   #:bugs-maildir-path
+   #:bugs-maildir-messages
+   #:bugs-generate-report
+   #:bugs-process-submit
+   #:bugs-process-append
+   #:bugs-process-close
+   #:bugs-process-control
+   #:parse-pseudo-headers
+   #:parse-control-body
+   #:inject-pseudo-headers
    #:distrib-archive-path
    ;; Request handlers
    #:handle-info-command
