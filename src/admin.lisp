@@ -88,6 +88,34 @@
 ;;; Subcommand: show-config
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
+;;; ─── define-admin-cmd: eliminates arg-guard boilerplate ──────────────────────
+;;; Converts: (defun cmd-X (args) (destructuring-bind ... (unless ...))) boilerplate
+;;; Into:     (define-admin-cmd X (arg1 arg2) "arg1> <arg2" body...)
+;;;
+;;; Complex commands (custom flag parsing) continue to use defun directly.
+
+(defmacro define-admin-cmd (name required-args usage &body body)
+  "Define cmd-NAME function with standard arg-guard boilerplate.
+   REQUIRED-ARGS: required positional arg symbols (empty = no guard).
+   USAGE: string fragment for error message, e.g. "<list-id> <address>".
+   Auto-generates destructuring-bind + unless guard + return-from."
+  (let ((fn-name (intern (format nil "CMD-~A" (string-upcase name)) *package*))
+        (args-sym (gensym "ARGS")))
+    (if (null required-args)
+        `(defun ,fn-name (,args-sym)
+           (declare (ignore ,args-sym))
+           ,@body)
+        `(defun ,fn-name (,args-sym)
+           (destructuring-bind (&optional ,@required-args &rest _) ,args-sym
+             (declare (ignore _))
+             (unless ,(if (= 1 (length required-args))
+                          (first required-args)
+                          `(and ,@required-args))
+               (format *error-output* "mlisp-admin: ~A requires ~A~%"
+                       ,(string-downcase (string name)) ,usage)
+               (return-from ,fn-name 1))
+             ,@body)))))
+
 (defun cmd-show-config ()
   (format t "config-dir:    ~A~%" (mlisp:mlisp-home))
   (format t "state.sexp:    ~A~%" (mlisp:state-path))
@@ -1543,6 +1571,57 @@ Config resolution order:
             (format t "Appended ~A bug recipes to ~A~%" pkg procmailrc)))
       0)))
 
+;;; Command dispatch table -- replaces 47-line cond chain
+(defparameter *admin-commands*
+  (list
+   (cons "show-config" (lambda (_) (declare (ignore _)) (cmd-show-config)))
+   (cons "init" #'cmd-init)
+   (cons "list-lists" (lambda (_) (declare (ignore _)) (cmd-list-lists)))
+   (cons "list-subs" #'cmd-list-subs)
+   (cons "add-sub" #'cmd-add-sub)
+   (cons "rm-sub" #'cmd-rm-sub)
+   (cons "add-list" #'cmd-add-list)
+   (cons "rm-list" #'cmd-rm-list)
+   (cons "set-option" #'cmd-set-option)
+   (cons "show-bounces" #'cmd-show-bounces)
+   (cons "clear-bounces" #'cmd-clear-bounces)
+   (cons "export-metrics" (lambda (_) (declare (ignore _)) (cmd-export-metrics)))
+   (cons "show-dedup" #'cmd-show-dedup)
+   (cons "clear-dedup" #'cmd-clear-dedup)
+   (cons "hold-queue" #'cmd-hold-queue)
+   (cons "approve" #'cmd-approve)
+   (cons "reject" #'cmd-reject-held)
+   (cons "add-exploder" #'cmd-add-exploder)
+   (cons "flush-digest" #'cmd-flush-digest)
+   (cons "add-distrib" #'cmd-add-distrib)
+   (cons "add-namespace" #'cmd-add-namespace)
+   (cons "list-namespace" #'cmd-list-namespace)
+   (cons "set-nomail" #'cmd-set-nomail)
+   (cons "lock" #'cmd-lock)
+   (cons "unlock" #'cmd-unlock)
+   (cons "show-pending" #'cmd-show-pending)
+   (cons "clear-pending" #'cmd-clear-pending)
+   (cons "add-sub-batch" #'cmd-add-sub-batch)
+   (cons "rm-sub-batch" #'cmd-rm-sub-batch)
+   (cons "export-ldif" #'cmd-export-ldif)
+   (cons "verp-decode" #'cmd-verp-decode)
+   (cons "diagnose" #'cmd-diagnose)
+   (cons "embargo" #'cmd-embargo)
+   (cons "release-embargo" #'cmd-release-embargo)
+   (cons "export-csv" #'cmd-export-csv)
+   (cons "rename-list" #'cmd-rename-list)
+   (cons "copy-list" #'cmd-copy-list)
+   (cons "list-stats" #'cmd-list-stats)
+   (cons "bugs-add-package" #'cmd-bugs-add-package)
+   (cons "bugs-list-packages" #'cmd-bugs-list-packages)
+   (cons "install-procmail" #'cmd-install-procmail)
+   (cons "bugs-list" #'cmd-bugs-list)
+   (cons "bugs-show" #'cmd-bugs-show)
+   (cons "bugs-report" #'cmd-bugs-report)
+   (cons "install-bugs-procmail" #'cmd-install-bugs-procmail)
+   (cons "hatch" #'cmd-hatch)
+  ))
+
 (defun admin-main ()
   "Entry point for mlisp-admin binary."
   (let ((args (cdr sb-ext:*posix-argv*)))
@@ -1567,59 +1646,14 @@ Config resolution order:
              (subcmd-args (rest remaining))
              (code
               (handler-case
-                  (cond
-                    ((string= subcmd "show-config")  (cmd-show-config))
-                    ((string= subcmd "init")         (cmd-init subcmd-args))
-                    ((string= subcmd "list-lists")   (cmd-list-lists))
-                    ((string= subcmd "list-subs")    (cmd-list-subs subcmd-args))
-                    ((string= subcmd "add-sub")      (cmd-add-sub subcmd-args))
-                    ((string= subcmd "rm-sub")       (cmd-rm-sub subcmd-args))
-                    ((string= subcmd "add-list")     (cmd-add-list subcmd-args))
-                    ((string= subcmd "rm-list")      (cmd-rm-list subcmd-args))
-                    ((string= subcmd "install-procmail")
-                                              (cmd-install-procmail subcmd-args))
-                    ((string= subcmd "set-option")     (cmd-set-option subcmd-args))
-                    ((string= subcmd "show-bounces")   (cmd-show-bounces subcmd-args))
-                    ((string= subcmd "clear-bounces")  (cmd-clear-bounces subcmd-args))
-                    ((string= subcmd "export-metrics") (cmd-export-metrics))
-                    ((string= subcmd "show-dedup")      (cmd-show-dedup subcmd-args))
-                    ((string= subcmd "clear-dedup")     (cmd-clear-dedup subcmd-args))
-                    ((string= subcmd "hold-queue")      (cmd-hold-queue subcmd-args))
-                    ((string= subcmd "approve")         (cmd-approve subcmd-args))
-                    ((string= subcmd "reject")          (cmd-reject-held subcmd-args))
-                    ((string= subcmd "add-exploder")    (cmd-add-exploder subcmd-args))
-                    ((string= subcmd "flush-digest")    (cmd-flush-digest subcmd-args))
-                    ((string= subcmd "add-distrib")     (cmd-add-distrib subcmd-args))
-                    ((string= subcmd "add-namespace")   (cmd-add-namespace subcmd-args))
-                    ((string= subcmd "list-namespace")  (cmd-list-namespace subcmd-args))
-                    ((string= subcmd "set-nomail")      (cmd-set-nomail subcmd-args))
-                    ((string= subcmd "lock")            (cmd-lock subcmd-args))
-                    ((string= subcmd "unlock")          (cmd-unlock subcmd-args))
-                    ((string= subcmd "show-pending")    (cmd-show-pending subcmd-args))
-                    ((string= subcmd "clear-pending")   (cmd-clear-pending subcmd-args))
-                    ((string= subcmd "add-sub-batch")   (cmd-add-sub-batch subcmd-args))
-                    ((string= subcmd "rm-sub-batch")    (cmd-rm-sub-batch subcmd-args))
-                    ((string= subcmd "export-ldif")     (cmd-export-ldif subcmd-args))
-                    ((string= subcmd "verp-decode")     (cmd-verp-decode subcmd-args))
-                    ((string= subcmd "diagnose")        (cmd-diagnose subcmd-args))
-                    ((string= subcmd "embargo")         (cmd-embargo subcmd-args))
-                    ((string= subcmd "release-embargo") (cmd-release-embargo subcmd-args))
-                    ((string= subcmd "export-csv")       (cmd-export-csv subcmd-args))
-                    ((string= subcmd "rename-list")      (cmd-rename-list subcmd-args))
-                    ((string= subcmd "copy-list")        (cmd-copy-list subcmd-args))
-                    ((string= subcmd "list-stats")       (cmd-list-stats subcmd-args))
-                    ((string= subcmd "bugs-add-package")  (cmd-bugs-add-package subcmd-args))
-                    ((string= subcmd "bugs-list-packages")(cmd-bugs-list-packages subcmd-args))
-                    ((string= subcmd "bugs-list")         (cmd-bugs-list subcmd-args))
-                    ((string= subcmd "bugs-show")         (cmd-bugs-show subcmd-args))
-                    ((string= subcmd "bugs-report")       (cmd-bugs-report subcmd-args))
-                    ((string= subcmd "install-bugs-procmail") (cmd-install-bugs-procmail subcmd-args))
-                    ((string= subcmd "hatch")            (cmd-hatch subcmd-args))
-                                                                                                                        (t
+                  (let ((fn (cdr (assoc subcmd *admin-commands* :test #'string=))))
+                    (if fn
+                        (funcall fn subcmd-args)
+                                                                                                                        (progn
                      (format *error-output*
                              "mlisp-admin: unknown subcommand ~S~%" subcmd)
                      (usage)
-                     1))
+                     1)))
                 (error (e)
                   (format *error-output* "mlisp-admin: fatal: ~A~%" e)
                   2))))

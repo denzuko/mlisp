@@ -103,9 +103,8 @@
    #:bugs-list-open
    #:bugs-list-closed
    #:bug-exists-p
-   #:bugs-archive-message
-   #:bugs-maildir-path
-   #:bugs-maildir-messages
+   #:bugs-list-id
+   #:bugs-archive
    #:bugs-generate-report
    #:bugs-process-submit
    #:bugs-process-append
