@@ -74,24 +74,19 @@
 
 ;;; ─── Maildir (reuses maildir-write from maildir.lisp + patterns from requests.lisp)
 
-(defun bugs-maildir-path (pkg)
-  "Maildir path for PKG archive (same pattern as maildir-path in requests.lisp)."
-  (merge-pathnames (format nil "state/maildir/~A-bugs/new/" pkg)
-                   (mlisp-home)))
+(defun bugs-list-id (pkg)
+  "Maildir list-id for PKG bug archive: PKG-bugs convention.
+   Reuses maildir-path/maildir-messages from requests.lisp."
+  (format nil "~A-bugs" pkg))
 
-(defun bugs-maildir-messages (pkg)
-  "Sorted message pathnames (identical to maildir-messages in requests.lisp)."
-  (let ((dir (bugs-maildir-path pkg)))
-    (when (probe-file dir)
-      (sort (directory (merge-pathnames
-                              (make-pathname :name :wild :type :wild) dir))
-            #'string< :key #'namestring))))
+
 
 (defun bugs-archive (pkg raw-msg)
-  "Write RAW-MSG to Maildir using maildir-write from maildir.lisp."
+  "Write RAW-MSG to Maildir using maildir-write and bugs-list-id convention."
   (maildir-write
    (uiop:ensure-directory-pathname
-    (merge-pathnames (format nil "state/maildir/~A-bugs/" pkg) (mlisp-home)))
+    (merge-pathnames (format nil "state/maildir/~A/" (bugs-list-id pkg))
+                     (mlisp-home)))
    raw-msg))
 
 (defun bug-message->string (path)
@@ -147,7 +142,7 @@
   (let ((id-prefix (format nil "Bug#~A:" bug-id))
         (title nil) (severity "normal") (status :open)
         (tags '()) (owner nil) (reported-by nil) (date nil))
-    (dolist (path (bugs-maildir-messages pkg))
+    (dolist (path (maildir-messages (bugs-list-id pkg)))
       (let* ((hdrs    (read-message-headers path))
              (subj    (or (cdr (assoc "Subject" hdrs :test #'string-equal)) ""))
              (from    (or (cdr (assoc "From"    hdrs :test #'string-equal)) ""))
@@ -199,14 +194,14 @@
 
 ;;; ─── Message assembly macro ──────────────────────────────────────────────────
 
-(defmacro assemble-message (headers-alist body-lines)
+(defun assemble-message (headers body-lines)
   "Build RFC 2822 message string from headers alist and body lines list."
-  `(with-output-to-string (s)
-     (dolist (h ,headers-alist)
-       (format s "~A: ~A~%" (car h) (cdr h)))
-     (terpri s)
-     (dolist (line ,body-lines)
-       (write-line line s))))
+  (with-output-to-string (s)
+    (dolist (h headers)
+      (format s "~A: ~A~%" (car h) (cdr h)))
+    (terpri s)
+    (dolist (line body-lines)
+      (write-line line s))))
 
 ;;; ─── Pseudo-header injection ─────────────────────────────────────────────────
 
