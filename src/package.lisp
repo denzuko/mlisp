@@ -110,6 +110,12 @@
    #:bugs-process-append
    #:bugs-process-close
    #:bugs-process-control
+   ;; procmail-gen DSL
+   #:recipe->procmailrc
+   #:recipe-set->procmailrc
+   #:procmailrc-has-marker-p
+   #:read-recipes-from-file
+   #:write-procmail-recipes
    #:parse-pseudo-headers
    #:parse-control-body
    #:inject-pseudo-headers

@@ -91,6 +91,30 @@ jobs:
       - name: BATS GPG/hash tests
         run: MLISP_HOME="$(pwd)" bats --tap test/bats/test_mlisp_gpg.bats
 
+      - name: Build mlisp-bugs
+        run: sbcl --non-interactive --load build-bugs.lisp
+
+      - name: Build mlisp-procmail-gen
+        run: sbcl --non-interactive --load build-procmail-gen.lisp
+
+      - name: Verify mlisp-bugs and mlisp-procmail-gen binaries
+        run: |
+          test -x bin/mlisp-bugs
+          test -x bin/mlisp-procmail-gen
+          bin/mlisp-procmail-gen --help
+
+      # The following suites existed but were not previously wired into CI
+      # (gap predates this change; closing it here since it directly affects
+      # mlisp-bugs and mlisp-procmail-gen, both built above).
+      - name: BATS v0.4/v0.5/v0.6/filters/bugs/procmail-gen suites
+        run: |
+          for s in test_mlisp_v04a test_mlisp_v04b test_mlisp_v04cd \
+                   test_mlisp_v05 test_mlisp_v06 test_mlisp_filters \
+                   test_mlisp_bugs test_mlisp_procmail_gen; do
+            echo "=== $s ==="
+            MLISP_HOME="$(pwd)" bats --tap "test/bats/${s}.bats"
+          done
+
   notify-failure:
     name: Notify on failure
     needs: build-and-test
