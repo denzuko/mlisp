@@ -88,73 +88,6 @@
 ;;; Subcommand: show-config
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
-;;; ─── define-admin-cmd: eliminates arg-guard boilerplate ──────────────────────
-;;; Converts: (defun cmd-X (args) (destructuring-bind ... (unless ...))) boilerplate
-;;; Into:     (define-admin-cmd X (arg1 arg2) "arg1> <arg2" body...)
-;;;
-;;; Complex commands (custom flag parsing) continue to use defun directly.
-
-(defmacro define-admin-cmd (name required-args usage &body body)
-  "Define cmd-NAME function with standard arg-guard boilerplate.
-   REQUIRED-ARGS: required positional arg symbols (empty = no guard).
-   USAGE: string fragment for error message, e.g. \"<list-id> <address>\".
-   Auto-generates destructuring-bind + unless guard + return-from."
-  (let ((fn-name (intern (format nil "CMD-~A" (string-upcase name)) *package*))
-        (args-sym (gensym "ARGS")))
-    (if (null required-args)
-        `(defun ,fn-name (,args-sym)
-           (declare (ignore ,args-sym))
-           ,@body)
-        `(defun ,fn-name (,args-sym)
-           (destructuring-bind (&optional ,@required-args &rest _) ,args-sym
-             (declare (ignore _))
-             (unless ,(if (= 1 (length required-args))
-                          (first required-args)
-                          `(and ,@required-args))
-               (format *error-output* "mlisp-admin: ~A requires ~A~%"
-                       ,(string-downcase (string name)) ,usage)
-               (return-from ,fn-name 1))
-             ,@body)))))
-
-;;; ─── define-admin-cmd*: shadow variant with &optional/&rest support ──────────
-;;; Same boilerplate as define-admin-cmd, but ARG-SPEC is a full lambda-list
-;;; allowing trailing optional args (no guard) and/or a &rest collector.
-;;; Only the leading required symbols (before &optional/&rest) are guarded.
-;;;
-;;;   (define-admin-cmd* add-list (id drop &optional desc) "<id> <drop-address>"
-;;;     body...)
-;;;
-;;;   (define-admin-cmd* add-exploder (id &rest members) "<id> <list-id> ..."
-;;;     body...)
-
-(defmacro define-admin-cmd* (name arg-spec usage &body body)
-  "Like define-admin-cmd, but ARG-SPEC may contain &optional and/or &rest,
-   e.g. (id drop &optional desc) or (id &rest members).
-   Only symbols before &optional/&rest are guarded with unless+return-from."
-  (let* ((fn-name  (intern (format nil "CMD-~A" (string-upcase name)) *package*))
-         (args-sym (gensym "ARGS"))
-         (opt-pos  (position '&optional arg-spec))
-         (rest-pos (position '&rest arg-spec))
-         (split    (or opt-pos rest-pos (length arg-spec)))
-         (required (subseq arg-spec 0 split))
-         (opt-args (if opt-pos
-                       (subseq arg-spec (1+ opt-pos) (or rest-pos (length arg-spec)))
-                       '()))
-         (rest-arg (when rest-pos (nth (1+ rest-pos) arg-spec)))
-         (lambda-list `(&optional ,@required ,@opt-args
-                        ,@(if rest-arg `(&rest ,rest-arg) '(&rest _)))))
-    `(defun ,fn-name (,args-sym)
-       (destructuring-bind ,lambda-list ,args-sym
-         ,@(unless rest-arg '((declare (ignore _))))
-         ,@(when required
-             `((unless ,(if (= 1 (length required))
-                            (first required)
-                            `(and ,@required))
-                 (format *error-output* "mlisp-admin: ~A requires ~A~%"
-                         ,(string-downcase (string name)) ,usage)
-                 (return-from ,fn-name 1))))
-         ,@body))))
-
 ;;; ─── parse-flags: two-phase flag extraction ──────────────────────────────────
 ;;; Strips known "--flag value" pairs out of a raw arg list, returning the
 ;;; remaining positional args plus a plist of extracted flag values. This
@@ -180,20 +113,25 @@
             (progn (push a positional) (setf tail (cdr tail))))))
     (values (nreverse positional) flags)))
 
-;;; ─── define-admin-cmd+: positional args + named --flag value pairs ───────────
-;;; Combines define-admin-cmd*'s positional/optional binding with parse-flags.
-;;; FLAG-NAMES is a list of "--flag" strings; each becomes a :keyword binding
-;;; (e.g. "--reason" -> REASON) available in BODY, bound to nil if absent.
+;;; ─── define-admin-cmd+: canonical cmd-* definition macro ─────────────────────
+;;; This is the SINGLE implementation of the arg-guard + flag-parsing
+;;; boilerplate shared by every cmd-* command. define-admin-cmd and
+;;; define-admin-cmd* (below) are thin forwarding aliases that expand
+;;; through this -- there is exactly one place that builds the
+;;; destructuring-bind lambda-list and the unless+return-from guard,
+;;; so a future fix applies everywhere automatically.
 ;;;
-;;;   (define-admin-cmd+ lock (list-id) () ("--reason") "<list-id>"
-;;;     body...)   ; REASON bound from --reason VALUE, or nil
+;;; ARG-SPEC is a full lambda-list: (id drop) or (id drop &optional desc)
+;;; or (id &rest members). Only symbols before &optional/&rest are guarded.
+;;; FLAG-NAMES is a list of "--flag" strings; each becomes a body-visible
+;;; variable (e.g. "--reason" -> REASON), bound to its value or nil via
+;;; parse-flags. Pass () for FLAG-NAMES when there are no flags.
+;;;
+;;;   (define-admin-cmd+ lock (list-id) ("--reason") "<list-id>" body...)
 
 (defmacro define-admin-cmd+ (name arg-spec flag-names usage &body body)
-  "Like define-admin-cmd*, but ARGS is first run through parse-flags using
-   FLAG-NAMES (list of \"--flag\" strings). Each flag becomes a body-visible
-   variable named after the flag (e.g. \"--reason\" -> REASON), bound to its
-   value or nil. The remaining positional args are bound per ARG-SPEC exactly
-   as in define-admin-cmd*."
+  "Canonical cmd-NAME definition: parse-flags + positional/optional/rest
+   destructuring-bind + unless+return-from guard on required args."
   (let* ((fn-name   (intern (format nil "CMD-~A" (string-upcase name)) *package*))
          (args-sym  (gensym "ARGS"))
          (flags-sym (gensym "FLAGS"))
@@ -215,6 +153,7 @@
                           `(,var (getf ,flags-sym
                                        ,(intern (string-upcase (subseq flag 2)) :keyword))))
                         flag-vars flag-names)
+           (declare (ignorable ,@flag-vars))
            (destructuring-bind ,lambda-list ,args-sym
              ,@(unless rest-arg '((declare (ignore _))))
              ,@(when required
@@ -225,6 +164,23 @@
                              ,(string-downcase (string name)) ,usage)
                      (return-from ,fn-name 1))))
              ,@body))))))
+
+;;; ─── define-admin-cmd / define-admin-cmd*: thin forwarding aliases ───────────
+;;; Both expand to define-admin-cmd+ with an empty FLAG-NAMES list. No
+;;; existing call sites change: define-admin-cmd's REQUIRED-ARGS is a flat
+;;; list with no &optional/&rest, which is valid ARG-SPEC as-is;
+;;; define-admin-cmd*'s ARG-SPEC is already the same shape define-admin-cmd+
+;;; expects.
+
+(defmacro define-admin-cmd (name required-args usage &body body)
+  "Alias: (define-admin-cmd NAME (req...) usage body...)
+   = (define-admin-cmd+ NAME (req...) () usage body...)"
+  `(define-admin-cmd+ ,name ,required-args () ,usage ,@body))
+
+(defmacro define-admin-cmd* (name arg-spec usage &body body)
+  "Alias: (define-admin-cmd* NAME arg-spec usage body...)
+   = (define-admin-cmd+ NAME arg-spec () usage body...)"
+  `(define-admin-cmd+ ,name ,arg-spec () ,usage ,@body))
 
 (defun cmd-show-config ()
   (format t "config-dir:    ~A~%" (mlisp:mlisp-home))
