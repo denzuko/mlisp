@@ -1,0 +1,10 @@
+@comment $NetBSD$
+bin/mlisp
+bin/mlisp-admin
+bin/mlisp-bugs
+bin/mlisp-distrib
+bin/mlisp-procmail-gen
+man/man1/mlisp.1
+man/man1/mlisp-admin.1
+man/man1/mlisp-distrib.1
+man/man7/mlisp-intro.7
