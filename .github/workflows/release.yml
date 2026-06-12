@@ -8,12 +8,13 @@ name: Release
 #   linux-tarball : working. Builds all 5 binaries via the existing
 #                   build*.lisp scripts and packages a generic
 #                   linux-x86_64 tarball with manpages + LICENSE.
-#   linux-pkgsrc  : EXPERIMENTAL (continue-on-error). pkgsrc bootstrap
-#                   on ubuntu-latest is unverified -- this job builds
-#                   the binaries then attempts `pkg_create` using the
-#                   etc/pkg/ templates (Makefile, PLIST, DESCR). If
-#                   bootstrap fails or times out, the job is allowed to
-#                   fail without blocking the release; iterate here.
+#   linux-pkgsrc  : EXPERIMENTAL (continue-on-error). Builds the binaries
+#                   then attempts `pkg_create` using the etc/pkg/
+#                   templates (Makefile, PLIST, DESCR). pkgsrc
+#                   bootstrap-from-source on ubuntu-latest is CONFIRMED
+#                   WORKING (~2.5min, run 2026-06-12). Remains
+#                   continue-on-error pending a second confirmed-green
+#                   run of pkg_create itself.
 #   netbsd-pkgsrc : NOT YET IMPLEMENTED. Planned: vmactions/netbsd-vm,
 #                   reusing etc/pkg/ (shared with linux-pkgsrc above).
 #                   Needs confirmation that nested virtualization is
@@ -127,7 +128,7 @@ jobs:
           cp -r "${name}/." "$work/"
           sed "s/@PKGVERSION@/${v}/" etc/pkg/Makefile > "$work/Makefile"
           cp etc/pkg/PLIST etc/pkg/DESCR "$work/"
-          pkg_create -B comments -c etc/pkg/DESCR -d etc/pkg/DESCR \
+          pkg_create -c etc/pkg/DESCR -d etc/pkg/DESCR \
             -f etc/pkg/PLIST -I /usr/pkg -p "$work" \
             -U "${name}-linux-x86_64.tgz" || true
 
