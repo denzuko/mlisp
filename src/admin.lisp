@@ -538,77 +538,69 @@
     (:users    "end-user support and general questions"))
   "Default subgroups created by add-namespace.")
 
-(defun cmd-add-namespace (args)
+(define-admin-cmd+ add-namespace (name base) ("--subgroups") "<name> <base-address>"
   "Create all subgroup list records for a namespace.
    Usage: add-namespace <name> <base-address> [--subgroups sg1,sg2,...]
    Example: add-namespace mlisp mlisp@panix.com
    Creates: mlisp-discuss, mlisp-announce, mlisp-devel, mlisp-distrib, mlisp-request"
-  (let ((name     (first args))
-        (base     (second args))
-        (rest-args (cddr args)))
-    (unless (and name base)
-      (format *error-output*
-              "mlisp-admin: add-namespace requires <name> <base-address>~%")
-      (return-from cmd-add-namespace 1))
-    (mlisp:load-state)
-    ;; Parse --subgroups flag
-    (let* ((sg-filter
-            (let ((pos (position "--subgroups" rest-args :test #'string=)))
-              (when (and pos (nth (1+ pos) rest-args))
-                (let* ((raw    (nth (1+ pos) rest-args))
-                       (result (list))
-                       (cur    ""))
-                  (dolist (c (coerce raw (quote list)))
-                    (if (char= c #\,)
-                        (let ((s (string-trim " " cur)))
-                          (when (> (length s) 0)
-                            (push (intern (string-upcase s) :keyword) result))
-                          (setf cur ""))
-                        (setf cur (concatenate (quote string) cur (string c)))))
-                  (let ((s (string-trim " " cur)))
-                    (when (> (length s) 0)
-                      (push (intern (string-upcase s) :keyword) result)))
-                  (nreverse result)))))
-           (subgroups (if sg-filter
-                          (remove-if-not
-                           (lambda (entry)
-                             (member (first entry) sg-filter))
-                           *default-subgroups*)
-                          *default-subgroups*))
-           ;; Derive request address from base: foo@host → foo-request@host
-           (at-pos  (position #\@ base))
-           (local   (if at-pos (subseq base 0 at-pos) base))
-           (domain  (if at-pos (subseq base at-pos) ""))
-           (req-addr (concatenate 'string local "-request" domain)))
-      (dolist (sg-entry subgroups)
-        (let* ((sg      (first sg-entry))
-               (sg-name (string-downcase (symbol-name sg)))
-               (id      (format nil "~A-~A" name sg-name))
-               (drop    (concatenate 'string local "-" sg-name domain)))
-          ;; Skip if already exists
-          (unless (mlisp:find-list id)
-            (let ((new-list
-                   (list :id id
-                         :subgroup sg
-                         :drop-address drop
-                         :request-address req-addr
-                         :description (format nil "~A ~A" name (second sg-entry))
-                         :postal-address
-                         (or (mlisp:list-postal-address "mlisp-discuss")
-                             (mlisp:list-postal-address (caar (getf mlisp:*state* :lists)))
-                             "")
-                         :privacy-url
-                         (or (mlisp:list-privacy-url "mlisp-discuss")
-                             (mlisp:list-privacy-url (caar (getf mlisp:*state* :lists)))
-                             "")
-                         :auto-subscribe nil
-                         :max-bounces 5
-                         :subscribers '())))
-              (setf (getf mlisp:*state* :lists)
-                    (append (getf mlisp:*state* :lists) (list new-list)))
-              (format t "Created ~A -> ~A~%" id drop)))))
-      (mlisp:save-state)
-      0)))
+  (mlisp:load-state)
+  ;; Parse --subgroups flag (comma-separated list, e.g. "discuss,announce")
+  (let* ((sg-filter
+          (when subgroups
+            (let* ((raw    subgroups)
+                   (result (list))
+                   (cur    ""))
+              (dolist (c (coerce raw (quote list)))
+                (if (char= c #\,)
+                    (let ((s (string-trim " " cur)))
+                      (when (> (length s) 0)
+                        (push (intern (string-upcase s) :keyword) result))
+                      (setf cur ""))
+                    (setf cur (concatenate (quote string) cur (string c)))))
+              (let ((s (string-trim " " cur)))
+                (when (> (length s) 0)
+                  (push (intern (string-upcase s) :keyword) result)))
+              (nreverse result))))
+         (subgroups (if sg-filter
+                        (remove-if-not
+                         (lambda (entry)
+                           (member (first entry) sg-filter))
+                         *default-subgroups*)
+                        *default-subgroups*))
+         ;; Derive request address from base: foo@host → foo-request@host
+         (at-pos  (position #\@ base))
+         (local   (if at-pos (subseq base 0 at-pos) base))
+         (domain  (if at-pos (subseq base at-pos) ""))
+         (req-addr (concatenate 'string local "-request" domain)))
+    (dolist (sg-entry subgroups)
+      (let* ((sg      (first sg-entry))
+             (sg-name (string-downcase (symbol-name sg)))
+             (id      (format nil "~A-~A" name sg-name))
+             (drop    (concatenate 'string local "-" sg-name domain)))
+        ;; Skip if already exists
+        (unless (mlisp:find-list id)
+          (let ((new-list
+                 (list :id id
+                       :subgroup sg
+                       :drop-address drop
+                       :request-address req-addr
+                       :description (format nil "~A ~A" name (second sg-entry))
+                       :postal-address
+                       (or (mlisp:list-postal-address "mlisp-discuss")
+                           (mlisp:list-postal-address (caar (getf mlisp:*state* :lists)))
+                           "")
+                       :privacy-url
+                       (or (mlisp:list-privacy-url "mlisp-discuss")
+                           (mlisp:list-privacy-url (caar (getf mlisp:*state* :lists)))
+                           "")
+                       :auto-subscribe nil
+                       :max-bounces 5
+                       :subscribers '())))
+            (setf (getf mlisp:*state* :lists)
+                  (append (getf mlisp:*state* :lists) (list new-list)))
+            (format t "Created ~A -> ~A~%" id drop)))))
+    (mlisp:save-state)
+    0))
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Subcommand: list-namespace
@@ -1118,33 +1110,28 @@
       (format t "Archive path: ~A~%" dest)
       0)))
 
-(defun cmd-set-option (args)
+(define-admin-cmd set-option (list-id key value) "<list-id> <key> <value>"
   "Set a list option: set-option <list-id> <key> <value>"
-  (destructuring-bind (&optional list-id key value &rest _) args
-    (declare (ignore _))
-    (unless (and list-id key value)
-      (format *error-output* "mlisp-admin: set-option requires <list-id> <key> <value>~%")
+  (mlisp:load-state)
+  (let ((lst (mlisp:find-list list-id)))
+    (unless lst
+      (format *error-output* "mlisp-admin: unknown list ~A~%" list-id)
       (return-from cmd-set-option 1))
-    (mlisp:load-state)
-    (let ((lst (mlisp:find-list list-id)))
-      (unless lst
-        (format *error-output* "mlisp-admin: unknown list ~A~%" list-id)
-        (return-from cmd-set-option 1))
-      (let* ((kw  (intern (string-upcase key) :keyword))
-             (val (cond ((string-equal value "true")   t)
-                        ((string-equal value "false")  nil)
-                        ((string-equal key "delivery-mode")
-                         (intern (string-upcase value) :keyword))
-                        ((ignore-errors (parse-integer value)))
-                        (t value))))
-        ;; setf (getf lst kw) only mutates existing keys.
-        ;; For new keys we must nconc onto the plist in *state*.
-        (if (member kw lst)
-            (setf (getf lst kw) val)
-            (nconc lst (list kw val)))
-        (mlisp:save-state)
-        (format t "Set ~A :~A = ~S~%" list-id (string-downcase key) val)
-        0))))
+    (let* ((kw  (intern (string-upcase key) :keyword))
+           (val (cond ((string-equal value "true")   t)
+                      ((string-equal value "false")  nil)
+                      ((string-equal key "delivery-mode")
+                       (intern (string-upcase value) :keyword))
+                      ((ignore-errors (parse-integer value)))
+                      (t value))))
+      ;; setf (getf lst kw) only mutates existing keys.
+      ;; For new keys we must nconc onto the plist in *state*.
+      (if (member kw lst)
+          (setf (getf lst kw) val)
+          (nconc lst (list kw val)))
+      (mlisp:save-state)
+      (format t "Set ~A :~A = ~S~%" list-id (string-downcase key) val)
+      0)))
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Subcommand: show-bounces
