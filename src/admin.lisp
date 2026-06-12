@@ -97,7 +97,7 @@
 (defmacro define-admin-cmd (name required-args usage &body body)
   "Define cmd-NAME function with standard arg-guard boilerplate.
    REQUIRED-ARGS: required positional arg symbols (empty = no guard).
-   USAGE: string fragment for error message, e.g. "<list-id> <address>".
+   USAGE: string fragment for error message, e.g. \"<list-id> <address>\".
    Auto-generates destructuring-bind + unless guard + return-from."
   (let ((fn-name (intern (format nil "CMD-~A" (string-upcase name)) *package*))
         (args-sym (gensym "ARGS")))
@@ -191,76 +191,62 @@
 ;;; Subcommand: list-subs
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
-(defun cmd-list-subs (args)
-  (let ((list-id (first args)))
-    (unless list-id
-      (format *error-output* "mlisp-admin: list-subs requires <list-id>~%")
+(define-admin-cmd list-subs (list-id) "<list-id>"
+  (mlisp:load-state)
+  (let ((lst (mlisp:find-list list-id)))
+    (unless lst
+      (format *error-output* "mlisp-admin: unknown list ~A~%" list-id)
       (return-from cmd-list-subs 1))
-    (mlisp:load-state)
-    (let ((lst (mlisp:find-list list-id)))
-      (unless lst
-        (format *error-output* "mlisp-admin: unknown list ~A~%" list-id)
-        (return-from cmd-list-subs 1))
-      (let ((subs (mlisp:list-subscribers list-id)))
-        (if (null subs)
-            (format t "No subscribers on ~A.~%" list-id)
-            (dolist (rec subs)
-              (format t "~A~:[~; [NOMAIL]~]~%  subscribed-at: ~A~%  consent-method: ~A~%"
-                      (or (getf rec :address) (format nil "hash:~A" (getf rec :address-hash)))
-                      (getf rec :nomail)
-                      (getf rec :subscribed-at)
-                      (getf rec :consent-method)))))
-      0)))
+    (let ((subs (mlisp:list-subscribers list-id)))
+      (if (null subs)
+          (format t "No subscribers on ~A.~%" list-id)
+          (dolist (rec subs)
+            (format t "~A~:[~; [NOMAIL]~]~%  subscribed-at: ~A~%  consent-method: ~A~%"
+                    (or (getf rec :address) (format nil "hash:~A" (getf rec :address-hash)))
+                    (getf rec :nomail)
+                    (getf rec :subscribed-at)
+                    (getf rec :consent-method)))))
+    0))
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Subcommand: add-sub
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
-(defun cmd-add-sub (args)
-  (destructuring-bind (&optional list-id address &rest _) args
-    (declare (ignore _))
-    (unless (and list-id address)
-      (format *error-output* "mlisp-admin: add-sub requires <list-id> <address>~%")
-      (return-from cmd-add-sub 1))
-    (mlisp:load-state)
-    (unless (mlisp:find-list list-id)
-      (format *error-output* "mlisp-admin: unknown list ~A~%" list-id)
-      (return-from cmd-add-sub 1))
-    ;; Use admin-add consent method instead of email-subscribe-command
-    (unless (mlisp:subscriber-p list-id address)
-      (let ((lst (mlisp:find-list list-id)))
-        (setf (getf lst :subscribers)
-              (cons (list :address (string-downcase address)
-                          :subscribed-at (mlisp:iso8601-now)
-                          :consent-method "admin-add")
-                    (getf lst :subscribers)))))
-    (mlisp:save-state)
-    (mlisp:audit-append (list :event :subscribe :list list-id
-                               :address address :via "mlisp-admin"))
-    (format t "Added ~A to ~A~%" address list-id)
-    0))
+(define-admin-cmd add-sub (list-id address) "<list-id> <address>"
+  (mlisp:load-state)
+  (unless (mlisp:find-list list-id)
+    (format *error-output* "mlisp-admin: unknown list ~A~%" list-id)
+    (return-from cmd-add-sub 1))
+  ;; Use admin-add consent method instead of email-subscribe-command
+  (unless (mlisp:subscriber-p list-id address)
+    (let ((lst (mlisp:find-list list-id)))
+      (setf (getf lst :subscribers)
+            (cons (list :address (string-downcase address)
+                        :subscribed-at (mlisp:iso8601-now)
+                        :consent-method "admin-add")
+                  (getf lst :subscribers)))))
+  (mlisp:save-state)
+  (mlisp:audit-append (list :event :subscribe :list list-id
+                             :address address :via "mlisp-admin"))
+  (format t "Added ~A to ~A~%" address list-id)
+  0)
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Subcommand: rm-sub
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
-(defun cmd-rm-sub (args)
-  (destructuring-bind (&optional list-id address &rest _) args
-    (declare (ignore _))
-    (unless (and list-id address)
-      (format *error-output* "mlisp-admin: rm-sub requires <list-id> <address>~%")
-      (return-from cmd-rm-sub 1))
-    (mlisp:load-state)
-    (unless (mlisp:find-list list-id)
-      (format *error-output* "mlisp-admin: unknown list ~A~%" list-id)
-      (return-from cmd-rm-sub 1))
-    ;; GDPR Art.17 erasure
-    (mlisp:remove-subscriber list-id address)
-    (mlisp:save-state)
-    (mlisp:audit-append (list :event :unsubscribe :list list-id
-                               :address address :via "mlisp-admin"))
-    (format t "Removed ~A from ~A~%" address list-id)
-    0))
+(define-admin-cmd rm-sub (list-id address) "<list-id> <address>"
+  (mlisp:load-state)
+  (unless (mlisp:find-list list-id)
+    (format *error-output* "mlisp-admin: unknown list ~A~%" list-id)
+    (return-from cmd-rm-sub 1))
+  ;; GDPR Art.17 erasure
+  (mlisp:remove-subscriber list-id address)
+  (mlisp:save-state)
+  (mlisp:audit-append (list :event :unsubscribe :list list-id
+                             :address address :via "mlisp-admin"))
+  (format t "Removed ~A from ~A~%" address list-id)
+  0)
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Subcommand: add-list
@@ -298,22 +284,18 @@
 ;;; Subcommand: rm-list
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
-(defun cmd-rm-list (args)
-  (let ((id (first args)))
-    (unless id
-      (format *error-output* "mlisp-admin: rm-list requires <id>~%")
-      (return-from cmd-rm-list 1))
-    (mlisp:load-state)
-    (unless (mlisp:find-list id)
-      (format *error-output* "mlisp-admin: unknown list ~A~%" id)
-      (return-from cmd-rm-list 1))
-    (setf (getf mlisp:*state* :lists)
-          (remove id (getf mlisp:*state* :lists)
-                  :key (lambda (l) (getf l :id))
-                  :test #'string=))
-    (mlisp:save-state)
-    (format t "Removed list ~A~%" id)
-    0))
+(define-admin-cmd rm-list (id) "<id>"
+  (mlisp:load-state)
+  (unless (mlisp:find-list id)
+    (format *error-output* "mlisp-admin: unknown list ~A~%" id)
+    (return-from cmd-rm-list 1))
+  (setf (getf mlisp:*state* :lists)
+        (remove id (getf mlisp:*state* :lists)
+                :key (lambda (l) (getf l :id))
+                :test #'string=))
+  (mlisp:save-state)
+  (format t "Removed list ~A~%" id)
+  0)
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Admin entry point
