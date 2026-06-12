@@ -1134,42 +1134,33 @@
 ;;; Subcommand: show-bounces
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
-(defun cmd-show-bounces (args)
-  (let ((list-id (first args)))
-    (unless list-id
-      (format *error-output* "mlisp-admin: show-bounces requires <list-id>~%")
-      (return-from cmd-show-bounces 1))
-    (mlisp:load-state)
-    (unless (mlisp:find-list list-id)
-      (format *error-output* "mlisp-admin: unknown list ~A~%" list-id)
-      (return-from cmd-show-bounces 1))
-    (let ((found nil))
-      (dolist (rec (mlisp:list-subscribers list-id))
-        (let ((n (or (getf rec :bounce-count) 0)))
-          (when (> n 0)
-            (setf found t)
-            (format t "~A  bounces=~A  last=~A~%"
-                    (getf rec :address)
-                    n
-                    (or (getf rec :last-bounce) "never")))))
-      (unless found (format t "No bounces recorded for ~A~%" list-id))
-      0)))
+(define-admin-cmd show-bounces (list-id) "<list-id>"
+  (mlisp:load-state)
+  (unless (mlisp:find-list list-id)
+    (format *error-output* "mlisp-admin: unknown list ~A~%" list-id)
+    (return-from cmd-show-bounces 1))
+  (let ((found nil))
+    (dolist (rec (mlisp:list-subscribers list-id))
+      (let ((n (or (getf rec :bounce-count) 0)))
+        (when (> n 0)
+          (setf found t)
+          (format t "~A  bounces=~A  last=~A~%"
+                  (getf rec :address)
+                  n
+                  (or (getf rec :last-bounce) "never")))))
+    (unless found (format t "No bounces recorded for ~A~%" list-id))
+    0))
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Subcommand: clear-bounces
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
-(defun cmd-clear-bounces (args)
-  (destructuring-bind (&optional list-id address &rest _) args
-    (declare (ignore _))
-    (unless (and list-id address)
-      (format *error-output* "mlisp-admin: clear-bounces requires <list-id> <address>~%")
-      (return-from cmd-clear-bounces 1))
-    (mlisp:load-state)
-    (mlisp:clear-bounce list-id address)
-    (mlisp:save-state)
-    (format t "Cleared bounces for ~A on ~A~%" address list-id)
-    0))
+(define-admin-cmd clear-bounces (list-id address) "<list-id> <address>"
+  (mlisp:load-state)
+  (mlisp:clear-bounce list-id address)
+  (mlisp:save-state)
+  (format t "Cleared bounces for ~A on ~A~%" address list-id)
+  0)
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Subcommand: export-metrics
@@ -1186,97 +1177,75 @@
 ;;; Subcommand: show-dedup / clear-dedup
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
-(defun cmd-show-dedup (args)
-  (let ((list-id (first args)))
-    (unless list-id
-      (format *error-output* "mlisp-admin: show-dedup requires <list-id>~%")
-      (return-from cmd-show-dedup 1))
-    (mlisp:load-state)
-    (let ((entries (mlisp:dedup-entries list-id)))
-      (if (null entries)
-          (format t "No dedup entries for ~A~%" list-id)
-          (dolist (e entries)
-            (format t "~A  seen: ~A~%"
-                    (getf e :id)
-                    (getf e :seen-at))))
-      0)))
-
-(defun cmd-clear-dedup (args)
-  (let ((list-id (first args)))
-    (unless list-id
-      (format *error-output* "mlisp-admin: clear-dedup requires <list-id>~%")
-      (return-from cmd-clear-dedup 1))
-    (mlisp:load-state)
-    (mlisp:clear-dedup-cache list-id)
-    (format t "Cleared dedup cache for ~A~%" list-id)
+(define-admin-cmd show-dedup (list-id) "<list-id>"
+  (mlisp:load-state)
+  (let ((entries (mlisp:dedup-entries list-id)))
+    (if (null entries)
+        (format t "No dedup entries for ~A~%" list-id)
+        (dolist (e entries)
+          (format t "~A  seen: ~A~%"
+                  (getf e :id)
+                  (getf e :seen-at))))
     0))
+
+(define-admin-cmd clear-dedup (list-id) "<list-id>"
+  (mlisp:load-state)
+  (mlisp:clear-dedup-cache list-id)
+  (format t "Cleared dedup cache for ~A~%" list-id)
+  0)
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Subcommand: hold-queue / approve / reject
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
-(defun cmd-hold-queue (args)
-  (let ((list-id (first args)))
-    (unless list-id
-      (format *error-output* "mlisp-admin: hold-queue requires <list-id>~%")
-      (return-from cmd-hold-queue 1))
-    (mlisp:load-state)
-    (let ((queue (mlisp:held-queue list-id)))
-      (if (null queue)
-          (format t "No held messages for ~A~%" list-id)
-          (dolist (e queue)
-            (format t "~A  ~A  from: ~A  subj: ~A~%"
-                    (getf e :seq)
-                    (getf e :received)
-                    (or (getf e :from) "")
-                    (or (getf e :subject) ""))))
-      0)))
+(define-admin-cmd hold-queue (list-id) "<list-id>"
+  (mlisp:load-state)
+  (let ((queue (mlisp:held-queue list-id)))
+    (if (null queue)
+        (format t "No held messages for ~A~%" list-id)
+        (dolist (e queue)
+          (format t "~A  ~A  from: ~A  subj: ~A~%"
+                  (getf e :seq)
+                  (getf e :received)
+                  (or (getf e :from) "")
+                  (or (getf e :subject) ""))))
+    0))
 
-(defun cmd-approve (args)
-  (destructuring-bind (&optional list-id seq-str &rest _) args
-    (declare (ignore _))
-    (unless (and list-id seq-str)
-      (format *error-output* "mlisp-admin: approve requires <list-id> <seq>~%")
+(define-admin-cmd approve (list-id seq-str) "<list-id> <seq>"
+  (mlisp:load-state)
+  (let* ((seq   (parse-integer seq-str))
+         (entry (mlisp:release-held list-id seq)))
+    (unless entry
+      (format *error-output* "mlisp-admin: no held message ~A on ~A~%" seq list-id)
       (return-from cmd-approve 1))
-    (mlisp:load-state)
-    (let* ((seq   (parse-integer seq-str))
-           (entry (mlisp:release-held list-id seq)))
-      (unless entry
-        (format *error-output* "mlisp-admin: no held message ~A on ~A~%" seq list-id)
-        (return-from cmd-approve 1))
-      ;; Distribute the held message
-      (let ((hdrs  (getf entry :headers))
-            (body  (getf entry :body))
-            (from  (getf entry :from)))
-        (mlisp:maybe-archive-to-maildir list-id hdrs body)
-        (mlisp:distribute-message list-id from hdrs body)
-        (mlisp:audit-append (list :event :approved :list list-id :seq seq))
-        (format t "Approved and distributed message ~A on ~A~%" seq list-id)
-        0))))
-
-(defun cmd-reject-held (args)
-  (destructuring-bind (&optional list-id seq-str &rest _) args
-    (declare (ignore _))
-    (unless (and list-id seq-str)
-      (format *error-output* "mlisp-admin: reject requires <list-id> <seq>~%")
-      (return-from cmd-reject-held 1))
-    (mlisp:load-state)
-    (let* ((seq   (parse-integer seq-str))
-           (entry (mlisp:release-held list-id seq)))
-      (unless entry
-        (format *error-output* "mlisp-admin: no held message ~A on ~A~%" seq list-id)
-        (return-from cmd-reject-held 1))
-      (mlisp:audit-append (list :event :rejected-held :list list-id :seq seq))
-      ;; Send rejection notice to original sender
-      (let ((from (getf entry :from)))
-        (when from
-          (mlisp:sendmail (list (mlisp:extract-address from))
-                          (format nil "Your submission to ~A was not approved.~%" list-id)
-                          :extra-headers (list (cons "Subject"
-                                                     (format nil "Submission rejected: ~A" list-id))
-                                               (cons "From" (mlisp:list-drop-address list-id))))))
-      (format t "Rejected message ~A on ~A~%" seq list-id)
+    ;; Distribute the held message
+    (let ((hdrs  (getf entry :headers))
+          (body  (getf entry :body))
+          (from  (getf entry :from)))
+      (mlisp:maybe-archive-to-maildir list-id hdrs body)
+      (mlisp:distribute-message list-id from hdrs body)
+      (mlisp:audit-append (list :event :approved :list list-id :seq seq))
+      (format t "Approved and distributed message ~A on ~A~%" seq list-id)
       0)))
+
+(define-admin-cmd reject (list-id seq-str) "<list-id> <seq>"
+  (mlisp:load-state)
+  (let* ((seq   (parse-integer seq-str))
+         (entry (mlisp:release-held list-id seq)))
+    (unless entry
+      (format *error-output* "mlisp-admin: no held message ~A on ~A~%" seq list-id)
+      (return-from cmd-reject 1))
+    (mlisp:audit-append (list :event :rejected-held :list list-id :seq seq))
+    ;; Send rejection notice to original sender
+    (let ((from (getf entry :from)))
+      (when from
+        (mlisp:sendmail (list (mlisp:extract-address from))
+                        (format nil "Your submission to ~A was not approved.~%" list-id)
+                        :extra-headers (list (cons "Subject"
+                                                   (format nil "Submission rejected: ~A" list-id))
+                                             (cons "From" (mlisp:list-drop-address list-id))))))
+    (format t "Rejected message ~A on ~A~%" seq list-id)
+    0))
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Subcommand: add-exploder
@@ -1308,17 +1277,13 @@
 ;;; Subcommand: flush-digest
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
-(defun cmd-flush-digest (args)
-  (let ((list-id (first args)))
-    (unless list-id
-      (format *error-output* "mlisp-admin: flush-digest requires <list-id>~%")
-      (return-from cmd-flush-digest 1))
-    (mlisp:load-state)
-    (let ((n (mlisp:flush-digest list-id)))
-      (if (= n 0)
-          (format t "Nothing to flush for ~A~%" list-id)
-          (format t "Flushed ~A articles for ~A~%" n list-id))
-      0)))
+(define-admin-cmd flush-digest (list-id) "<list-id>"
+  (mlisp:load-state)
+  (let ((n (mlisp:flush-digest list-id)))
+    (if (= n 0)
+        (format t "Nothing to flush for ~A~%" list-id)
+        (format t "Flushed ~A articles for ~A~%" n list-id))
+    0))
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Subcommand: add-distrib
@@ -1555,7 +1520,7 @@ Config resolution order:
    (cons "clear-dedup" #'cmd-clear-dedup)
    (cons "hold-queue" #'cmd-hold-queue)
    (cons "approve" #'cmd-approve)
-   (cons "reject" #'cmd-reject-held)
+   (cons "reject" #'cmd-reject)
    (cons "add-exploder" #'cmd-add-exploder)
    (cons "flush-digest" #'cmd-flush-digest)
    (cons "add-distrib" #'cmd-add-distrib)
