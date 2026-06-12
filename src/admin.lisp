@@ -155,6 +155,77 @@
                  (return-from ,fn-name 1))))
          ,@body))))
 
+;;; ─── parse-flags: two-phase flag extraction ──────────────────────────────────
+;;; Strips known "--flag value" pairs out of a raw arg list, returning the
+;;; remaining positional args plus a plist of extracted flag values. This
+;;; replaces the repeated (position "--foo" args :test #'string=) / (nth (1+ p) ...)
+;;; idiom that appears in install-procmail, export-ldif, export-csv,
+;;; bugs-add-package, bugs-list, bugs-report, add-namespace, etc.
+
+(defun parse-flags (args flag-names)
+  "Extract \"--flag value\" pairs for each name in FLAG-NAMES (e.g. \"--reason\")
+   from ARGS. Returns (values positional-args flags-plist) where flags-plist
+   maps :reason -> value for each flag found (absent if not given)."
+  (let ((positional '())
+        (flags '())
+        (tail args))
+    (loop while tail do
+      (let* ((a   (car tail))
+             (key (find a flag-names :test #'string=)))
+        (if key
+            (progn
+              (setf (getf flags (intern (string-upcase (subseq key 2)) :keyword))
+                    (second tail))
+              (setf tail (cddr tail)))
+            (progn (push a positional) (setf tail (cdr tail))))))
+    (values (nreverse positional) flags)))
+
+;;; ─── define-admin-cmd+: positional args + named --flag value pairs ───────────
+;;; Combines define-admin-cmd*'s positional/optional binding with parse-flags.
+;;; FLAG-NAMES is a list of "--flag" strings; each becomes a :keyword binding
+;;; (e.g. "--reason" -> REASON) available in BODY, bound to nil if absent.
+;;;
+;;;   (define-admin-cmd+ lock (list-id) () ("--reason") "<list-id>"
+;;;     body...)   ; REASON bound from --reason VALUE, or nil
+
+(defmacro define-admin-cmd+ (name arg-spec flag-names usage &body body)
+  "Like define-admin-cmd*, but ARGS is first run through parse-flags using
+   FLAG-NAMES (list of \"--flag\" strings). Each flag becomes a body-visible
+   variable named after the flag (e.g. \"--reason\" -> REASON), bound to its
+   value or nil. The remaining positional args are bound per ARG-SPEC exactly
+   as in define-admin-cmd*."
+  (let* ((fn-name   (intern (format nil "CMD-~A" (string-upcase name)) *package*))
+         (args-sym  (gensym "ARGS"))
+         (flags-sym (gensym "FLAGS"))
+         (opt-pos   (position '&optional arg-spec))
+         (rest-pos  (position '&rest arg-spec))
+         (split     (or opt-pos rest-pos (length arg-spec)))
+         (required  (subseq arg-spec 0 split))
+         (opt-args  (if opt-pos
+                        (subseq arg-spec (1+ opt-pos) (or rest-pos (length arg-spec)))
+                        '()))
+         (rest-arg  (when rest-pos (nth (1+ rest-pos) arg-spec)))
+         (lambda-list `(&optional ,@required ,@opt-args
+                        ,@(if rest-arg `(&rest ,rest-arg) '(&rest _))))
+         (flag-vars (mapcar (lambda (f) (intern (string-upcase (subseq f 2)) *package*))
+                             flag-names)))
+    `(defun ,fn-name (,args-sym)
+       (multiple-value-bind (,args-sym ,flags-sym) (parse-flags ,args-sym ',flag-names)
+         (let ,(mapcar (lambda (var flag)
+                          `(,var (getf ,flags-sym
+                                       ,(intern (string-upcase (subseq flag 2)) :keyword))))
+                        flag-vars flag-names)
+           (destructuring-bind ,lambda-list ,args-sym
+             ,@(unless rest-arg '((declare (ignore _))))
+             ,@(when required
+                 `((unless ,(if (= 1 (length required))
+                                (first required)
+                                `(and ,@required))
+                     (format *error-output* "mlisp-admin: ~A requires ~A~%"
+                             ,(string-downcase (string name)) ,usage)
+                     (return-from ,fn-name 1))))
+             ,@body))))))
+
 (defun cmd-show-config ()
   (format t "config-dir:    ~A~%" (mlisp:mlisp-home))
   (format t "state.sexp:    ~A~%" (mlisp:state-path))
@@ -638,28 +709,22 @@
 ;;; Subcommand: lock / unlock
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
-(defun cmd-lock (args)
-  (let ((list-id (first args))
-        (reason  (let ((p (position "--reason" args :test #'string=)))
-                   (when p (nth (1+ p) args)))))
-    (unless list-id
-      (format *error-output* "mlisp-admin: lock requires <list-id>~%")
+(define-admin-cmd+ lock (list-id) ("--reason") "<list-id>"
+  (mlisp:load-state)
+  (let ((lst (mlisp:find-list list-id)))
+    (unless lst
+      (format *error-output* "mlisp-admin: unknown list ~A~%" list-id)
       (return-from cmd-lock 1))
-    (mlisp:load-state)
-    (let ((lst (mlisp:find-list list-id)))
-      (unless lst
-        (format *error-output* "mlisp-admin: unknown list ~A~%" list-id)
-        (return-from cmd-lock 1))
-      (if (member :locked lst)
-          (setf (getf lst :locked) t)
-          (nconc lst (list :locked t)))
-      (when reason
-        (if (member :lock-reason lst)
-            (setf (getf lst :lock-reason) reason)
-            (nconc lst (list :lock-reason reason))))
-      (mlisp:save-state)
-      (format t "Locked ~A~@[ — ~A~]~%" list-id reason)
-      0)))
+    (if (member :locked lst)
+        (setf (getf lst :locked) t)
+        (nconc lst (list :locked t)))
+    (when reason
+      (if (member :lock-reason lst)
+          (setf (getf lst :lock-reason) reason)
+          (nconc lst (list :lock-reason reason))))
+    (mlisp:save-state)
+    (format t "Locked ~A~@[ — ~A~]~%" list-id reason)
+    0))
 
 (define-admin-cmd unlock (list-id) "<list-id>"
   (mlisp:load-state)
