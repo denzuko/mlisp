@@ -820,39 +820,31 @@
 ;;; Subcommand: verp-decode
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
-(defun cmd-verp-decode (args)
+(define-admin-cmd verp-decode (verp-addr) "<verp-address>"
   "verp-decode <verp-address>
    Decode a VERP-encoded bounce address to the original subscriber address."
-  (let ((verp-addr (first args)))
-    (unless verp-addr
-      (format *error-output* "mlisp-admin: verp-decode requires <verp-address>~%")
-      (return-from cmd-verp-decode 1))
-    (let ((decoded (mlisp:verp-decode verp-addr)))
-      (if decoded
-          (progn (format t "~A~%" decoded) 0)
-          (progn
-            (format *error-output* "mlisp-admin: could not decode VERP address: ~A~%" verp-addr)
-            1)))))
+  (let ((decoded (mlisp:verp-decode verp-addr)))
+    (if decoded
+        (progn (format t "~A~%" decoded) 0)
+        (progn
+          (format *error-output* "mlisp-admin: could not decode VERP address: ~A~%" verp-addr)
+          1))))
 
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Subcommand: diagnose
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
-(defun cmd-diagnose (args)
+(define-admin-cmd diagnose (list-id) "<list-id>"
   "diagnose <list-id>
    Print a health report for the list to stdout."
-  (let ((list-id (first args)))
-    (unless list-id
-      (format *error-output* "mlisp-admin: diagnose requires <list-id>~%")
+  (mlisp:load-state)
+  (let* ((lst      (mlisp:find-list list-id))
+         (ns       (mlisp:list-namespace list-id))
+         (siblings (when ns (mlisp:namespace-siblings list-id))))
+    (unless lst
+      (format *error-output* "mlisp-admin: unknown list ~A~%" list-id)
       (return-from cmd-diagnose 1))
-    (mlisp:load-state)
-    (let* ((lst      (mlisp:find-list list-id))
-           (ns       (mlisp:list-namespace list-id))
-           (siblings (when ns (mlisp:namespace-siblings list-id))))
-      (unless lst
-        (format *error-output* "mlisp-admin: unknown list ~A~%" list-id)
-        (return-from cmd-diagnose 1))
       (format t "mlisp List Diagnosis Report~%")
       (format t "Generated: ~A~%~%" (mlisp:iso8601-now))
       (dolist (target (or siblings (list lst)))
@@ -903,51 +895,42 @@
               (format t "  missing templates: ~{~A~^, ~}~%" missing-tpls)
               (format t "  templates:      all present~%"))
           (terpri)))
-    0)))
+    0))
 
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Subcommands: embargo / release-embargo (#55)
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
-(defun cmd-embargo (args)
-  (destructuring-bind (&optional list-id date &rest _) args
-    (declare (ignore _))
-    (unless (and list-id date)
-      (format *error-output* "mlisp-admin: embargo requires <list-id> <ISO8601-date>~%")
-      (return-from cmd-embargo 1))
-    (mlisp:load-state)
-    (let ((lst (mlisp:find-list list-id)))
-      (unless lst (format *error-output* "mlisp-admin: unknown list ~A~%" list-id)
-              (return-from cmd-embargo 1))
-      (if (member :embargoed-until lst)
-          (setf (getf lst :embargoed-until) date)
-          (nconc lst (list :embargoed-until date)))
-      (mlisp:save-state)
-      (mlisp:audit-append (list :event :embargo-set :list list-id :until date))
-      (format t "Embargoed ~A until ~A~%" list-id date)
-      0)))
+(define-admin-cmd embargo (list-id date) "<list-id> <ISO8601-date>"
+  (mlisp:load-state)
+  (let ((lst (mlisp:find-list list-id)))
+    (unless lst (format *error-output* "mlisp-admin: unknown list ~A~%" list-id)
+            (return-from cmd-embargo 1))
+    (if (member :embargoed-until lst)
+        (setf (getf lst :embargoed-until) date)
+        (nconc lst (list :embargoed-until date)))
+    (mlisp:save-state)
+    (mlisp:audit-append (list :event :embargo-set :list list-id :until date))
+    (format t "Embargoed ~A until ~A~%" list-id date)
+    0))
 
-(defun cmd-release-embargo (args)
-  (let ((list-id (first args)))
-    (unless list-id
-      (format *error-output* "mlisp-admin: release-embargo requires <list-id>~%")
-      (return-from cmd-release-embargo 1))
-    (mlisp:load-state)
-    (let ((lst (mlisp:find-list list-id)))
-      (unless lst (format *error-output* "mlisp-admin: unknown list ~A~%" list-id)
-              (return-from cmd-release-embargo 1))
-      (remf lst :embargoed-until)
-      ;; Distribute any held security posts
-      (let ((held-path (merge-pathnames
-                         (format nil "state/held/~A.sexp" list-id)
-                         (mlisp:mlisp-home))))
-        (when (probe-file held-path)
-          (format t "Releasing held posts from ~A~%" held-path)))
-      (mlisp:save-state)
-      (mlisp:audit-append (list :event :embargo-released :list list-id))
-      (format t "Released embargo on ~A~%" list-id)
-      0)))
+(define-admin-cmd release-embargo (list-id) "<list-id>"
+  (mlisp:load-state)
+  (let ((lst (mlisp:find-list list-id)))
+    (unless lst (format *error-output* "mlisp-admin: unknown list ~A~%" list-id)
+            (return-from cmd-release-embargo 1))
+    (remf lst :embargoed-until)
+    ;; Distribute any held security posts
+    (let ((held-path (merge-pathnames
+                       (format nil "state/held/~A.sexp" list-id)
+                       (mlisp:mlisp-home))))
+      (when (probe-file held-path)
+        (format t "Releasing held posts from ~A~%" held-path)))
+    (mlisp:save-state)
+    (mlisp:audit-append (list :event :embargo-released :list list-id))
+    (format t "Released embargo on ~A~%" list-id)
+    0))
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Subcommand: export-csv (#52)
@@ -995,31 +978,26 @@
 ;;; Subcommands: rename-list, copy-list, list-stats (#53)
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
-(defun cmd-rename-list (args)
-  (destructuring-bind (&optional old-id new-id &rest _) args
-    (declare (ignore _))
-    (unless (and old-id new-id)
-      (format *error-output* "mlisp-admin: rename-list requires <old-id> <new-id>~%")
-      (return-from cmd-rename-list 1))
-    (mlisp:load-state)
-    (let ((lst (mlisp:find-list old-id)))
-      (unless lst (format *error-output* "mlisp-admin: unknown list ~A~%" old-id)
-              (return-from cmd-rename-list 1))
-      ;; Update id in-place
-      (setf (getf lst :id) new-id)
-      ;; Update drop-address: replace old-id prefix
-      (let ((drop (getf lst :drop-address)))
-        (when drop
-          ;; Simple prefix replacement without regex dependency
-          (setf (getf lst :drop-address)
-                (if (and (>= (length drop) (length old-id))
-                         (string= (subseq drop 0 (length old-id)) old-id))
-                    (concatenate 'string new-id (subseq drop (length old-id)))
-                    drop))))
-      (mlisp:save-state)
-      (mlisp:audit-append (list :event :list-renamed :old old-id :new new-id))
-      (format t "Renamed ~A to ~A~%" old-id new-id)
-      0)))
+(define-admin-cmd rename-list (old-id new-id) "<old-id> <new-id>"
+  (mlisp:load-state)
+  (let ((lst (mlisp:find-list old-id)))
+    (unless lst (format *error-output* "mlisp-admin: unknown list ~A~%" old-id)
+            (return-from cmd-rename-list 1))
+    ;; Update id in-place
+    (setf (getf lst :id) new-id)
+    ;; Update drop-address: replace old-id prefix
+    (let ((drop (getf lst :drop-address)))
+      (when drop
+        ;; Simple prefix replacement without regex dependency
+        (setf (getf lst :drop-address)
+              (if (and (>= (length drop) (length old-id))
+                       (string= (subseq drop 0 (length old-id)) old-id))
+                  (concatenate 'string new-id (subseq drop (length old-id)))
+                  drop))))
+    (mlisp:save-state)
+    (mlisp:audit-append (list :event :list-renamed :old old-id :new new-id))
+    (format t "Renamed ~A to ~A~%" old-id new-id)
+    0))
 
 (defun cmd-copy-list (args)
   (destructuring-bind (&optional src-id dst-id &rest _) args
