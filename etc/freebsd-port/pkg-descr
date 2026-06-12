@@ -1,0 +1,15 @@
+mlisp is a Common Lisp mailing list manager (Smartlist/Mailman 2
+replacement) for Maildir environments, plus mlisp-bugs, a
+Debbugs-compatible email bug tracker built on the same Maildir
+architecture (bug state is derived by scanning the Maildir archive,
+exactly as Debbugs does).
+
+Features include subscriber self-service commands, namespace subgroups
+(discuss/announce/devel/owner/security/commits/users/distrib/request),
+a pluggable pre/post-filter pipeline (spam/AV/archive hooks), GPG
+require-signed enforcement, DMARC From-rewriting, VERP bounce
+attribution, double opt-in confirmation, RFC 8058 one-click unsubscribe,
+AllFix-style file distribution (mlisp-distrib), and an s-expr DSL for
+generating procmailrc recipes (mlisp-procmail-gen).
+
+WWW: https://github.com/denzuko/mlisp

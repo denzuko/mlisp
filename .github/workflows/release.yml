@@ -1,0 +1,140 @@
+name: Release
+
+# Triggered on version tags (v0.1.0, v0.7.0, ...). Builds and attaches
+# platform artifacts to the GitHub Release for that tag (created/updated
+# via the existing `gh release create` flow -- see CHANGELOG.md history).
+#
+# Status (see #97 for design discussion):
+#   linux-tarball : working. Builds all 5 binaries via the existing
+#                   build*.lisp scripts and packages a generic
+#                   linux-x86_64 tarball with manpages + LICENSE.
+#   linux-pkgsrc  : EXPERIMENTAL (continue-on-error). pkgsrc bootstrap
+#                   on ubuntu-latest is unverified -- this job builds
+#                   the binaries then attempts `pkg_create` using the
+#                   etc/pkg/ templates (Makefile, PLIST, DESCR). If
+#                   bootstrap fails or times out, the job is allowed to
+#                   fail without blocking the release; iterate here.
+#   netbsd-pkgsrc : NOT YET IMPLEMENTED. Planned: vmactions/netbsd-vm,
+#                   reusing etc/pkg/ (shared with linux-pkgsrc above).
+#                   Needs confirmation that nested virtualization is
+#                   available on whichever runner this targets.
+#   freebsd-port  : NOT YET IMPLEMENTED. Planned: vmactions/freebsd-vm,
+#                   building via etc/freebsd-port/Makefile and packaging
+#                   a ports-skeleton tarball (source submission shape,
+#                   not a binary pkg) including a `make makesum`-generated
+#                   distinfo.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: {}
+
+jobs:
+  linux-tarball:
+    name: Linux binary tarball
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine version
+        id: ver
+        run: |
+          ref="${GITHUB_REF#refs/tags/v}"
+          if [ "$ref" = "$GITHUB_REF" ]; then ref="0.0.0-dev"; fi
+          echo "version=$ref" >> "$GITHUB_OUTPUT"
+
+      - name: Install SBCL + Quicklisp
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y sbcl
+          curl -sO https://beta.quicklisp.org/quicklisp.lisp
+          sbcl --non-interactive \
+               --load quicklisp.lisp \
+               --eval '(quicklisp-quickstart:install :path (merge-pathnames "quicklisp/" (user-homedir-pathname)))'
+
+      - name: Build all binaries
+        run: |
+          sbcl --non-interactive --load build.lisp
+          sbcl --non-interactive --load build-admin.lisp
+          sbcl --non-interactive --load build-bugs.lisp
+          sbcl --non-interactive --load build-distrib.lisp
+          sbcl --non-interactive --load build-procmail-gen.lisp
+
+      - name: Stage and package tarball
+        run: |
+          v="${{ steps.ver.outputs.version }}"
+          name="mlisp-${v}"
+          stage="$(mktemp -d)/${name}"
+          mkdir -p "$stage/bin" "$stage/man/man1" "$stage/man/man7"
+          cp bin/mlisp bin/mlisp-admin bin/mlisp-bugs bin/mlisp-distrib bin/mlisp-procmail-gen "$stage/bin/"
+          cp src/man/mlisp.1 src/man/mlisp-admin.1 src/man/mlisp-distrib.1 "$stage/man/man1/"
+          cp src/man/mlisp-intro.7 "$stage/man/man7/"
+          cp LICENSE* "$stage/" 2>/dev/null || true
+          tar -C "$(dirname "$stage")" -czf "${name}-linux-x86_64.tar.gz" "${name}"
+          echo "ARTIFACT=${name}-linux-x86_64.tar.gz" >> "$GITHUB_ENV"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-x86_64-tarball
+          path: ${{ env.ARTIFACT }}
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${GITHUB_REF#refs/tags/}" "${{ env.ARTIFACT }}" --clobber
+
+  linux-pkgsrc:
+    name: Linux pkgsrc package (experimental)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    needs: linux-tarball
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine version
+        id: ver
+        run: |
+          ref="${GITHUB_REF#refs/tags/v}"
+          if [ "$ref" = "$GITHUB_REF" ]; then ref="0.0.0-dev"; fi
+          echo "version=$ref" >> "$GITHUB_OUTPUT"
+
+      - name: Download linux tarball artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-x86_64-tarball
+
+      - name: Bootstrap pkgsrc (EXPERIMENTAL -- unverified, may need iteration)
+        run: |
+          set -x
+          curl -L -o pkgsrc.tar.gz \
+            https://cdn.NetBSD.org/pub/pkgsrc/current/pkgsrc.tar.gz
+          tar xzf pkgsrc.tar.gz
+          cd pkgsrc/bootstrap
+          ./bootstrap --unprivileged --prefix "$HOME/pkg"
+
+      - name: pkg_create using etc/pkg/ templates
+        run: |
+          set -x
+          export PATH="$HOME/pkg/bin:$HOME/pkg/sbin:$PATH"
+          v="${{ steps.ver.outputs.version }}"
+          name="mlisp-${v}"
+          tar xzf "${name}-linux-x86_64.tar.gz"
+          work="$(mktemp -d)/work"
+          mkdir -p "$work"
+          cp -r "${name}/." "$work/"
+          sed "s/@PKGVERSION@/${v}/" etc/pkg/Makefile > "$work/Makefile"
+          cp etc/pkg/PLIST etc/pkg/DESCR "$work/"
+          pkg_create -B comments -c etc/pkg/DESCR -d etc/pkg/DESCR \
+            -f etc/pkg/PLIST -I /usr/pkg -p "$work" \
+            -U "${name}-linux-x86_64.tgz" || true
+
+      - name: Upload pkgsrc artifact (if produced)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-x86_64-pkgsrc
+          path: "*.tgz"
+          if-no-files-found: ignore

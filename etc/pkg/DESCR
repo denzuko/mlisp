@@ -1,0 +1,15 @@
+mlisp is a Common Lisp mailing list manager (Smartlist/Mailman 2
+replacement) for the panix.com Maildir environment, plus mlisp-bugs,
+a Debbugs-compatible email bug tracker built on the same Maildir
+architecture.
+
+Features include subscriber self-service, namespace subgroups
+(discuss/announce/devel/owner/security/commits/users/distrib/request),
+a pluggable pre/post-filter pipeline, GPG signature verification, DMARC
+rewriting, VERP bounce attribution, AllFix file distribution, and an
+s-expr DSL for procmailrc generation (mlisp-procmail-gen).
+
+Binaries: mlisp, mlisp-admin, mlisp-bugs, mlisp-distrib,
+mlisp-procmail-gen.
+
+Home page: https://github.com/denzuko/mlisp
