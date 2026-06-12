@@ -603,31 +603,27 @@
 ;;; Subcommand: list-namespace
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
-(defun cmd-list-namespace (args)
+(define-admin-cmd list-namespace (ns) "<name>"
   "Show all subgroups for a namespace prefix.
    Usage: list-namespace <name>"
-  (let ((ns (first args)))
-    (unless ns
-      (format *error-output* "mlisp-admin: list-namespace requires <name>~%")
-      (return-from cmd-list-namespace 1))
-    (mlisp:load-state)
-    (let ((siblings (remove-if-not
-                     (lambda (lst)
-                       (let ((ns2 (mlisp:list-namespace (getf lst :id))))
-                         (and ns2 (string= ns2 (string-downcase ns)))))
-                     (getf mlisp:*state* :lists))))
-      (if (null siblings)
-          (progn
-            (format *error-output* "mlisp-admin: no lists found for namespace ~A~%" ns)
-            (return-from cmd-list-namespace 1))
-          (dolist (lst siblings)
-            (format t "~A~%  subgroup:  :~A~%  drop:      ~A~%  request:   ~A~%  subs:      ~A~%"
-                    (getf lst :id)
-                    (string-downcase (symbol-name (or (getf lst :subgroup) :unknown)))
-                    (getf lst :drop-address)
-                    (getf lst :request-address)
-                    (length (getf lst :subscribers)))))
-      0)))
+  (mlisp:load-state)
+  (let ((siblings (remove-if-not
+                   (lambda (lst)
+                     (let ((ns2 (mlisp:list-namespace (getf lst :id))))
+                       (and ns2 (string= ns2 (string-downcase ns)))))
+                   (getf mlisp:*state* :lists))))
+    (if (null siblings)
+        (progn
+          (format *error-output* "mlisp-admin: no lists found for namespace ~A~%" ns)
+          (return-from cmd-list-namespace 1))
+        (dolist (lst siblings)
+          (format t "~A~%  subgroup:  :~A~%  drop:      ~A~%  request:   ~A~%  subs:      ~A~%"
+                  (getf lst :id)
+                  (string-downcase (symbol-name (or (getf lst :subgroup) :unknown)))
+                  (getf lst :drop-address)
+                  (getf lst :request-address)
+                  (length (getf lst :subscribers)))))
+    0))
 
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
@@ -1069,38 +1065,32 @@
     (format t "Copied config from ~A to ~A (subscribers not copied)~%" src-id dst-id)
     0))
 
-(defun cmd-list-stats (args)
-  (let ((list-id (first args))
-        (since   (let ((p (position "--since" args :test #'string=)))
-                   (when p (nth (1+ p) args)))))
-    (unless list-id
-      (format *error-output* "mlisp-admin: list-stats requires <list-id>~%")
-      (return-from cmd-list-stats 1))
-    (mlisp:load-state)
-    (let* ((audit-path (merge-pathnames "state/audit.sexp" (mlisp:mlisp-home)))
-           (events     (when (probe-file audit-path)
-                         (with-open-file (s audit-path)
-                           (loop for e = (ignore-errors (read s nil nil))
-                                 while e collect e))))
-           ;; Filter to this list
-           (list-events (remove-if-not
-                          (lambda (e)
-                            (and (string-equal (or (getf e :list) "") list-id)
-                                 (or (null since)
-                                     (string>= (or (getf e :at) "") since))))
-                          events))
-           (distributed (count :distributed list-events :key (lambda (e) (getf e :event))))
-           (held        (count :held         list-events :key (lambda (e) (getf e :event))))
-           (subscribed  (count :subscribed   list-events :key (lambda (e) (getf e :event))))
-           (unsubscribed (count :unsubscribed list-events :key (lambda (e) (getf e :event))))
-           (bounced     (count :bounce-removed list-events :key (lambda (e) (getf e :event)))))
-      (format t "Stats for ~A~@[ since ~A~]:~%" list-id since)
-      (format t "  distributed:  ~A~%" distributed)
-      (format t "  held:         ~A~%" held)
-      (format t "  subscribed:   ~A~%" subscribed)
-      (format t "  unsubscribed: ~A~%" unsubscribed)
-      (format t "  bounced/removed: ~A~%" bounced)
-      0)))
+(define-admin-cmd+ list-stats (list-id) ("--since") "<list-id>"
+  (mlisp:load-state)
+  (let* ((audit-path (merge-pathnames "state/audit.sexp" (mlisp:mlisp-home)))
+         (events     (when (probe-file audit-path)
+                       (with-open-file (s audit-path)
+                         (loop for e = (ignore-errors (read s nil nil))
+                               while e collect e))))
+         ;; Filter to this list
+         (list-events (remove-if-not
+                        (lambda (e)
+                          (and (string-equal (or (getf e :list) "") list-id)
+                               (or (null since)
+                                   (string>= (or (getf e :at) "") since))))
+                        events))
+         (distributed (count :distributed list-events :key (lambda (e) (getf e :event))))
+         (held        (count :held         list-events :key (lambda (e) (getf e :event))))
+         (subscribed  (count :subscribed   list-events :key (lambda (e) (getf e :event))))
+         (unsubscribed (count :unsubscribed list-events :key (lambda (e) (getf e :event))))
+         (bounced     (count :bounce-removed list-events :key (lambda (e) (getf e :event)))))
+    (format t "Stats for ~A~@[ since ~A~]:~%" list-id since)
+    (format t "  distributed:  ~A~%" distributed)
+    (format t "  held:         ~A~%" held)
+    (format t "  subscribed:   ~A~%" subscribed)
+    (format t "  unsubscribed: ~A~%" unsubscribed)
+    (format t "  bounced/removed: ~A~%" bounced)
+    0))
 
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
