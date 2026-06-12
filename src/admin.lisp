@@ -1405,56 +1405,38 @@ Config resolution order:
             (format *error-output* "mlisp-admin: bug ~A #~A not found~%" pkg id)
             1)))))
 
-(defun cmd-bugs-list (args)
+(define-admin-cmd+ bugs-list (pkg) ("--severity" "--tag" ("--open" :boolean) ("--closed" :boolean))
+    "<pkg>"
   "bugs-list <pkg> [--open|--closed|--severity S|--tag T]"
-  (let ((pkg      (first args))
-        (open-only   (member "--open"   args :test #'string=))
-        (closed-only (member "--closed" args :test #'string=))
-        (sev-filter  (let ((p (position "--severity" args :test #'string=)))
-                       (when p (nth (1+ p) args))))
-        (tag-filter  (let ((p (position "--tag" args :test #'string=)))
-                       (when p (nth (1+ p) args)))))
-    (unless pkg
-      (format *error-output* "mlisp-admin: bugs-list requires <pkg>~%")
-      (return-from cmd-bugs-list 1))
-    (mlisp:load-state)
-    (let ((total (mlisp:bugs-package-counter pkg)))
-      (loop for n from 1 to total
-            for state = (mlisp:bugs-derive-state pkg n)
-            when (and state
-                      (or (not open-only)   (eq (getf state :status) :open))
-                      (or (not closed-only) (eq (getf state :status) :closed))
-                      (or (null sev-filter)
-                          (string-equal (getf state :severity) sev-filter))
-                      (or (null tag-filter)
-                          (member tag-filter (getf state :tags) :test #'string-equal)))
-            do (format t "#~3D [~7A] ~9A ~A~%"
-                       (getf state :id)
-                       (getf state :status)
-                       (getf state :severity)
-                       (getf state :title))))
-    0))
+  (mlisp:load-state)
+  (let ((total (mlisp:bugs-package-counter pkg)))
+    (loop for n from 1 to total
+          for state = (mlisp:bugs-derive-state pkg n)
+          when (and state
+                    (or (not open)   (eq (getf state :status) :open))
+                    (or (not closed) (eq (getf state :status) :closed))
+                    (or (null severity)
+                        (string-equal (getf state :severity) severity))
+                    (or (null tag)
+                        (member tag (getf state :tags) :test #'string-equal)))
+          do (format t "#~3D [~7A] ~9A ~A~%"
+                     (getf state :id)
+                     (getf state :status)
+                     (getf state :severity)
+                     (getf state :title))))
+  0)
 
-(defun cmd-bugs-report (args)
+(define-admin-cmd+ bugs-report (pkg) ("--severity" "--tag" ("--open" :boolean) ("--closed" :boolean))
+    "<pkg>"
   "bugs-report <pkg> [--open|--closed|--severity S|--tag T]"
-  (let ((pkg      (first args))
-        (open-only   (when (member "--open"   args :test #'string=) t))
-        (closed-only (when (member "--closed" args :test #'string=) t))
-        (sev-filter  (let ((p (position "--severity" args :test #'string=)))
-                       (when p (nth (1+ p) args))))
-        (tag-filter  (let ((p (position "--tag" args :test #'string=)))
-                       (when p (nth (1+ p) args)))))
-    (unless pkg
-      (format *error-output* "mlisp-admin: bugs-report requires <pkg>~%")
-      (return-from cmd-bugs-report 1))
-    (mlisp:load-state)
-    (write-string
-     (mlisp:bugs-generate-report pkg
-                                  :open-only   open-only
-                                  :closed-only closed-only
-                                  :severity-filter sev-filter
-                                  :tag-filter      tag-filter))
-    0))
+  (mlisp:load-state)
+  (write-string
+   (mlisp:bugs-generate-report pkg
+                                :open-only   open
+                                :closed-only closed
+                                :severity-filter severity
+                                :tag-filter      tag))
+  0)
 
 (define-admin-cmd+ install-bugs-procmail (pkg) (("--dry-run" :boolean)) "<pkg>"
   (let* ((home     (mlisp:mlisp-home))
