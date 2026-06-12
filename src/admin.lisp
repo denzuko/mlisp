@@ -587,24 +587,19 @@
 ;;; Subcommand: show-pending / clear-pending
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
-(defun cmd-set-nomail (args)
-  (destructuring-bind (&optional list-id address flag-str &rest _) args
-    (declare (ignore _))
-    (unless (and list-id address flag-str)
-      (format *error-output* "mlisp-admin: set-nomail requires <list-id> <address> true|false~%")
-      (return-from cmd-set-nomail 1))
-    (mlisp:load-state)
-    (let ((flag (cond ((string-equal flag-str "true")  t)
-                      ((string-equal flag-str "false") nil)
-                      (t (format *error-output* "mlisp-admin: flag must be true or false~%")
-                         (return-from cmd-set-nomail 1)))))
-      (if (mlisp:set-subscriber-nomail list-id address flag)
-          (progn
-            (format t "Set ~A NOMAIL=~A on ~A~%" address flag list-id)
-            0)
-          (progn
-            (format *error-output* "mlisp-admin: ~A not found in ~A~%" address list-id)
-            1)))))
+(define-admin-cmd set-nomail (list-id address flag-str) "<list-id> <address> true|false"
+  (mlisp:load-state)
+  (let ((flag (cond ((string-equal flag-str "true")  t)
+                    ((string-equal flag-str "false") nil)
+                    (t (format *error-output* "mlisp-admin: flag must be true or false~%")
+                       (return-from cmd-set-nomail 1)))))
+    (if (mlisp:set-subscriber-nomail list-id address flag)
+        (progn
+          (format t "Set ~A NOMAIL=~A on ~A~%" address flag list-id)
+          0)
+        (progn
+          (format *error-output* "mlisp-admin: ~A not found in ~A~%" address list-id)
+          1))))
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Subcommand: lock / unlock
@@ -633,59 +628,47 @@
       (format t "Locked ~A~@[ — ~A~]~%" list-id reason)
       0)))
 
-(defun cmd-unlock (args)
-  (let ((list-id (first args)))
-    (unless list-id
-      (format *error-output* "mlisp-admin: unlock requires <list-id>~%")
+(define-admin-cmd unlock (list-id) "<list-id>"
+  (mlisp:load-state)
+  (let ((lst (mlisp:find-list list-id)))
+    (unless lst
+      (format *error-output* "mlisp-admin: unknown list ~A~%" list-id)
       (return-from cmd-unlock 1))
-    (mlisp:load-state)
-    (let ((lst (mlisp:find-list list-id)))
-      (unless lst
-        (format *error-output* "mlisp-admin: unknown list ~A~%" list-id)
-        (return-from cmd-unlock 1))
-      ;; Remove :locked and :lock-reason from plist
-      (let ((new-plist
-             (loop for (k v) on lst by #'cddr
-                   unless (member k '(:locked :lock-reason))
-                   nconc (list k v))))
-        ;; Replace list contents
-        (loop for (k v) on new-plist by #'cddr do
-          (setf (getf lst k) v)))
-      (remf lst :locked)
-      (mlisp:save-state)
-      (format t "Unlocked ~A~%" list-id)
-      0)))
+    ;; Remove :locked and :lock-reason from plist
+    (let ((new-plist
+           (loop for (k v) on lst by #'cddr
+                 unless (member k '(:locked :lock-reason))
+                 nconc (list k v))))
+      ;; Replace list contents
+      (loop for (k v) on new-plist by #'cddr do
+        (setf (getf lst k) v)))
+    (remf lst :locked)
+    (mlisp:save-state)
+    (format t "Unlocked ~A~%" list-id)
+    0))
 
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Subcommand: show-pending / clear-pending
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
-(defun cmd-show-pending (args)
-  (let ((list-id (first args)))
-    (unless list-id
-      (format *error-output* "mlisp-admin: show-pending requires <list-id>~%")
-      (return-from cmd-show-pending 1))
-    (mlisp:load-state)
-    (let ((entries (mlisp:pending-entries list-id)))
-      (if (null entries)
-          (format t "No pending confirmations for ~A~%" list-id)
-          (dolist (e entries)
-            (format t "~A  type=~A  pending since ~A~%"
-                    (getf e :address)
-                    (getf e :type)
-                    (getf e :created-at))))
-      0)))
+(define-admin-cmd show-pending (list-id) "<list-id>"
+  (mlisp:load-state)
+  (let ((entries (mlisp:pending-entries list-id)))
+    (if (null entries)
+        (format t "No pending confirmations for ~A~%" list-id)
+        (dolist (e entries)
+          (format t "~A  type=~A  pending since ~A~%"
+                  (getf e :address)
+                  (getf e :type)
+                  (getf e :created-at))))
+    0))
 
-(defun cmd-clear-pending (args)
-  (let ((list-id (first args)))
-    (unless list-id
-      (format *error-output* "mlisp-admin: clear-pending requires <list-id>~%")
-      (return-from cmd-clear-pending 1))
-    (mlisp:load-state)
-    (let ((n (mlisp:clear-expired-pending list-id)))
-      (format t "Cleared ~A expired token~:P from ~A~%" n list-id)
-      0)))
+(define-admin-cmd clear-pending (list-id) "<list-id>"
+  (mlisp:load-state)
+  (let ((n (mlisp:clear-expired-pending list-id)))
+    (format t "Cleared ~A expired token~:P from ~A~%" n list-id)
+    0))
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Subcommand: add-sub-batch / rm-sub-batch
