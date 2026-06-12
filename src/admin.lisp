@@ -831,17 +831,11 @@
 ;;; Subcommand: export-ldif
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
-(defun cmd-export-ldif (args)
+(define-admin-cmd+ export-ldif (list-id) ("--base-dn" "--output") "<list-id>"
   "export-ldif <list-id> [--base-dn <dn>] [--output <file>]
    Export list subscribers as LDIF (RFC 2849) groupOfNames entry."
-  (let ((list-id  (first args))
-        (base-dn  (let ((p (position "--base-dn" args :test #'string=)))
-                    (if p (nth (1+ p) args) "dc=example,dc=com")))
-        (out-file (let ((p (position "--output" args :test #'string=)))
-                    (when p (nth (1+ p) args)))))
-    (unless list-id
-      (format *error-output* "mlisp-admin: export-ldif requires <list-id>~%")
-      (return-from cmd-export-ldif 1))
+  (let ((base-dn  (or base-dn "dc=example,dc=com"))
+        (out-file output))
     (mlisp:load-state)
     (let* ((lst   (mlisp:find-list list-id))
            (subs  (mlisp:list-subscribers list-id))
@@ -997,17 +991,11 @@
 ;;; Subcommand: export-csv (#52)
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
-(defun cmd-export-csv (args)
+(define-admin-cmd+ export-csv (list-id)
+    ("--output" ("--include-nomail" :boolean) ("--include-bounces" :boolean))
+    "<list-id>"
   "export-csv <list-id> [--output file.csv] [--include-nomail] [--include-bounces]"
-  (let ((list-id     (first args))
-        (out-file    (let ((p (position "--output" args :test #'string=)))
-                       (when p (nth (1+ p) args))))
-        (incl-nomail (member "--include-nomail" args :test #'string=))
-        (incl-bounce (member "--include-bounces" args :test #'string=)))
-    (declare (ignore incl-bounce))
-    (unless list-id
-      (format *error-output* "mlisp-admin: export-csv requires <list-id>~%")
-      (return-from cmd-export-csv 1))
+  (let ((out-file output))
     (mlisp:load-state)
     (let* ((subs  (mlisp:list-subscribers list-id))
            (hash? (getf (mlisp:find-list list-id) :hash-contacts))
@@ -1015,7 +1003,7 @@
             (with-output-to-string (s)
               (format s "address,subscribed_at,consent_method,bounce_count,nomail,last_bounce_at~%")
               (dolist (sub subs)
-                (when (or incl-nomail (not (getf sub :nomail)))
+                (when (or include-nomail (not (getf sub :nomail)))
                   (format s "~A,~A,~A,~A,~A,~A~%"
                           (if hash?
                               (or (getf sub :address-hash) "")
