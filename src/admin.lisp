@@ -1267,29 +1267,24 @@
 ;;; Subcommand: add-distrib
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
-(defun cmd-add-distrib (args)
-  (destructuring-bind (&optional id path &rest _) args
-    (declare (ignore _))
-    (unless (and id path)
-      (format *error-output* "mlisp-admin: add-distrib requires <id> <path>~%")
-      (return-from cmd-add-distrib 1))
-    (mlisp:load-state)
-    (when (mlisp:find-list id)
-      (format *error-output* "mlisp-admin: list ~A already exists~%" id)
-      (return-from cmd-add-distrib 1))
-    (setf (getf mlisp:*state* :lists)
-          (append (getf mlisp:*state* :lists)
-                  (list (list :id id
-                              :type :distrib
-                              :drop-address (format nil "mlisp-distrib-~A@localhost" id)
-                              :request-address (format nil "mlisp-distrib-~A-request@localhost" id)
-                              :description (format nil "Distribution channel: ~A" id)
-                              :distrib-path path
-                              :max-file-size-kb 512
-                              :subscribers '()))))
-    (mlisp:save-state)
-    (format t "Created distrib list ~A -> ~A~%" id path)
-    0))
+(define-admin-cmd add-distrib (id path) "<id> <path>"
+  (mlisp:load-state)
+  (when (mlisp:find-list id)
+    (format *error-output* "mlisp-admin: list ~A already exists~%" id)
+    (return-from cmd-add-distrib 1))
+  (setf (getf mlisp:*state* :lists)
+        (append (getf mlisp:*state* :lists)
+                (list (list :id id
+                            :type :distrib
+                            :drop-address (format nil "mlisp-distrib-~A@localhost" id)
+                            :request-address (format nil "mlisp-distrib-~A-request@localhost" id)
+                            :description (format nil "Distribution channel: ~A" id)
+                            :distrib-path path
+                            :max-file-size-kb 512
+                            :subscribers '()))))
+  (mlisp:save-state)
+  (format t "Created distrib list ~A -> ~A~%" id path)
+  0)
 
 (defun usage ()
   (format t
@@ -1335,8 +1330,7 @@ Config resolution order:
       (error (e)
         (format *error-output* "mlisp-admin: ~A~%" e) 1))))
 
-(defun cmd-bugs-list-packages (args)
-  (declare (ignore args))
+(define-admin-cmd bugs-list-packages () nil
   (mlisp:load-state)
   (let ((pkgs (mlisp:bugs-packages)))
     (if pkgs
@@ -1349,11 +1343,9 @@ Config resolution order:
         (format t "(no bug packages registered)~%"))
     0))
 
-(defun cmd-bugs-show (args)
-  "bugs-show <pkg> <bug-id>"
-  (let ((pkg (first args))
-        (id  (when (second args) (parse-integer (second args) :junk-allowed t))))
-    (unless (and pkg id)
+(define-admin-cmd bugs-show (pkg id-str) "<pkg> <id>"
+  (let ((id (parse-integer id-str :junk-allowed t)))
+    (unless id
       (format *error-output* "mlisp-admin: bugs-show requires <pkg> <id>~%")
       (return-from cmd-bugs-show 1))
     (mlisp:load-state)
