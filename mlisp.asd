@@ -51,6 +51,7 @@
      (:file "diagnose")
      (:file "exploder")
      (:file "bugs")
+     (:file "procmail-gen")
      (:file "main"))))
 
   :in-order-to ((test-op (test-op "mlisp-test"))))
