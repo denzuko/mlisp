@@ -116,6 +116,45 @@
                (return-from ,fn-name 1))
              ,@body)))))
 
+;;; ─── define-admin-cmd*: shadow variant with &optional/&rest support ──────────
+;;; Same boilerplate as define-admin-cmd, but ARG-SPEC is a full lambda-list
+;;; allowing trailing optional args (no guard) and/or a &rest collector.
+;;; Only the leading required symbols (before &optional/&rest) are guarded.
+;;;
+;;;   (define-admin-cmd* add-list (id drop &optional desc) "<id> <drop-address>"
+;;;     body...)
+;;;
+;;;   (define-admin-cmd* add-exploder (id &rest members) "<id> <list-id> ..."
+;;;     body...)
+
+(defmacro define-admin-cmd* (name arg-spec usage &body body)
+  "Like define-admin-cmd, but ARG-SPEC may contain &optional and/or &rest,
+   e.g. (id drop &optional desc) or (id &rest members).
+   Only symbols before &optional/&rest are guarded with unless+return-from."
+  (let* ((fn-name  (intern (format nil "CMD-~A" (string-upcase name)) *package*))
+         (args-sym (gensym "ARGS"))
+         (opt-pos  (position '&optional arg-spec))
+         (rest-pos (position '&rest arg-spec))
+         (split    (or opt-pos rest-pos (length arg-spec)))
+         (required (subseq arg-spec 0 split))
+         (opt-args (if opt-pos
+                       (subseq arg-spec (1+ opt-pos) (or rest-pos (length arg-spec)))
+                       '()))
+         (rest-arg (when rest-pos (nth (1+ rest-pos) arg-spec)))
+         (lambda-list `(&optional ,@required ,@opt-args
+                        ,@(if rest-arg `(&rest ,rest-arg) '(&rest _)))))
+    `(defun ,fn-name (,args-sym)
+       (destructuring-bind ,lambda-list ,args-sym
+         ,@(unless rest-arg '((declare (ignore _))))
+         ,@(when required
+             `((unless ,(if (= 1 (length required))
+                            (first required)
+                            `(and ,@required))
+                 (format *error-output* "mlisp-admin: ~A requires ~A~%"
+                         ,(string-downcase (string name)) ,usage)
+                 (return-from ,fn-name 1))))
+         ,@body))))
+
 (defun cmd-show-config ()
   (format t "config-dir:    ~A~%" (mlisp:mlisp-home))
   (format t "state.sexp:    ~A~%" (mlisp:state-path))
@@ -252,33 +291,27 @@
 ;;; Subcommand: add-list
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
-(defun cmd-add-list (args)
-  (destructuring-bind (&optional id drop desc &rest _) args
-    (declare (ignore _))
-    (unless (and id drop)
-      (format *error-output*
-              "mlisp-admin: add-list requires <id> <drop-address> [<description>]~%")
-      (return-from cmd-add-list 1))
-    (mlisp:load-state)
-    (when (mlisp:find-list id)
-      (format *error-output* "mlisp-admin: list ~A already exists~%" id)
-      (return-from cmd-add-list 1))
-    (setf (getf mlisp:*state* :lists)
-          (append (getf mlisp:*state* :lists)
-                  (list (list :id id
-                              :drop-address drop
-                              :request-address (mlisp:list-request-address id)
-                              :description (or desc "")
-                              :postal-address
-                              (mlisp:list-postal-address "discuss")
-                              :privacy-url
-                              (mlisp:list-privacy-url "discuss")
-                              :auto-subscribe nil
-                              :max-bounces 5
-                              :subscribers '()))))
-    (mlisp:save-state)
-    (format t "Created list ~A -> ~A~%" id drop)
-    0))
+(define-admin-cmd* add-list (id drop &optional desc) "<id> <drop-address> [<description>]"
+  (mlisp:load-state)
+  (when (mlisp:find-list id)
+    (format *error-output* "mlisp-admin: list ~A already exists~%" id)
+    (return-from cmd-add-list 1))
+  (setf (getf mlisp:*state* :lists)
+        (append (getf mlisp:*state* :lists)
+                (list (list :id id
+                            :drop-address drop
+                            :request-address (mlisp:list-request-address id)
+                            :description (or desc "")
+                            :postal-address
+                            (mlisp:list-postal-address "discuss")
+                            :privacy-url
+                            (mlisp:list-privacy-url "discuss")
+                            :auto-subscribe nil
+                            :max-bounces 5
+                            :subscribers '()))))
+  (mlisp:save-state)
+  (format t "Created list ~A -> ~A~%" id drop)
+  0)
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Subcommand: rm-list
@@ -999,26 +1032,21 @@
     (format t "Renamed ~A to ~A~%" old-id new-id)
     0))
 
-(defun cmd-copy-list (args)
-  (destructuring-bind (&optional src-id dst-id &rest _) args
-    (declare (ignore _))
-    (unless (and src-id dst-id)
-      (format *error-output* "mlisp-admin: copy-list requires <src-id> <dst-id>~%")
-      (return-from cmd-copy-list 1))
-    (mlisp:load-state)
-    (let ((src-lst (mlisp:find-list src-id)))
-      (unless src-lst (format *error-output* "mlisp-admin: unknown list ~A~%" src-id)
-              (return-from cmd-copy-list 1))
-      ;; Deep copy config, clear subscribers and counters
-      (let ((new-lst (copy-list src-lst)))
-        (setf (getf new-lst :id) dst-id)
-        (setf (getf new-lst :subscribers) '())
-        (setf (getf new-lst :message-counter) 0)
-        ;; Append to the state list store
-        (nconc mlisp:*state* (list new-lst))
-        (mlisp:save-state))
-      (format t "Copied config from ~A to ~A (subscribers not copied)~%" src-id dst-id)
-      0)))
+(define-admin-cmd copy-list (src-id dst-id) "<src-id> <dst-id>"
+  (mlisp:load-state)
+  (let ((src-lst (mlisp:find-list src-id)))
+    (unless src-lst (format *error-output* "mlisp-admin: unknown list ~A~%" src-id)
+            (return-from cmd-copy-list 1))
+    ;; Deep copy config, clear subscribers and counters
+    (let ((new-lst (copy-list src-lst)))
+      (setf (getf new-lst :id) dst-id)
+      (setf (getf new-lst :subscribers) '())
+      (setf (getf new-lst :message-counter) 0)
+      ;; Append to the state list store
+      (nconc mlisp:*state* (list new-lst))
+      (mlisp:save-state))
+    (format t "Copied config from ~A to ~A (subscribers not copied)~%" src-id dst-id)
+    0))
 
 (defun cmd-list-stats (args)
   (let ((list-id (first args))
