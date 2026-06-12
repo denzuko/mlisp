@@ -96,21 +96,31 @@
 ;;; bugs-add-package, bugs-list, bugs-report, add-namespace, etc.
 
 (defun parse-flags (args flag-names)
-  "Extract \"--flag value\" pairs for each name in FLAG-NAMES (e.g. \"--reason\")
-   from ARGS. Returns (values positional-args flags-plist) where flags-plist
-   maps :reason -> value for each flag found (absent if not given)."
+  "Extract flag values from ARGS per FLAG-NAMES. Each entry in FLAG-NAMES is
+   either:
+     - a string \"--foo\"            (value flag: consumes the following arg)
+     - a list (\"--foo\" :boolean)   (presence flag: sets to T, consumes nothing)
+   Returns (values positional-args flags-plist) where flags-plist maps
+   :foo -> value (value flags) or :foo -> t (boolean flags present),
+   absent if not given."
   (let ((positional '())
         (flags '())
         (tail args))
-    (loop while tail do
-      (let* ((a   (car tail))
-             (key (find a flag-names :test #'string=)))
-        (if key
-            (progn
-              (setf (getf flags (intern (string-upcase (subseq key 2)) :keyword))
-                    (second tail))
-              (setf tail (cddr tail)))
-            (progn (push a positional) (setf tail (cdr tail))))))
+    (flet ((flag-string (f) (if (consp f) (first f) f))
+           (boolean-p   (f) (and (consp f) (eq (second f) :boolean))))
+      (loop while tail do
+        (let* ((a    (car tail))
+               (spec (find a flag-names :key #'flag-string :test #'string=)))
+          (cond
+            ((null spec)
+             (push a positional) (setf tail (cdr tail)))
+            ((boolean-p spec)
+             (setf (getf flags (intern (string-upcase (subseq a 2)) :keyword)) t)
+             (setf tail (cdr tail)))
+            (t
+             (setf (getf flags (intern (string-upcase (subseq a 2)) :keyword))
+                   (second tail))
+             (setf tail (cddr tail)))))))
     (values (nreverse positional) flags)))
 
 ;;; ─── define-admin-cmd+: canonical cmd-* definition macro ─────────────────────
@@ -145,14 +155,15 @@
          (rest-arg  (when rest-pos (nth (1+ rest-pos) arg-spec)))
          (lambda-list `(&optional ,@required ,@opt-args
                         ,@(if rest-arg `(&rest ,rest-arg) '(&rest _))))
+         (flag-strings (mapcar (lambda (f) (if (consp f) (first f) f)) flag-names))
          (flag-vars (mapcar (lambda (f) (intern (string-upcase (subseq f 2)) *package*))
-                             flag-names)))
+                             flag-strings)))
     `(defun ,fn-name (,args-sym)
        (multiple-value-bind (,args-sym ,flags-sym) (parse-flags ,args-sym ',flag-names)
          (let ,(mapcar (lambda (var flag)
                           `(,var (getf ,flags-sym
                                        ,(intern (string-upcase (subseq flag 2)) :keyword))))
-                        flag-vars flag-names)
+                        flag-vars flag-strings)
            (declare (ignorable ,@flag-vars))
            (destructuring-bind ,lambda-list ,args-sym
              ,@(unless rest-arg '((declare (ignore _))))
@@ -1268,27 +1279,26 @@
 ;;; Subcommand: add-exploder
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
-(defun cmd-add-exploder (args)
-  (destructuring-bind (&optional id &rest members) args
-    (unless (and id members)
-      (format *error-output* "mlisp-admin: add-exploder requires <id> <list-id> ...~%")
-      (return-from cmd-add-exploder 1))
-    (mlisp:load-state)
-    (when (mlisp:find-list id)
-      (format *error-output* "mlisp-admin: list ~A already exists~%" id)
-      (return-from cmd-add-exploder 1))
-    (setf (getf mlisp:*state* :lists)
-          (append (getf mlisp:*state* :lists)
-                  (list (list :id id
-                              :type :exploder
-                              :drop-address (format nil "mlisp-exploder-~A@localhost" id)
-                              :request-address (format nil "mlisp-exploder-~A-request@localhost" id)
-                              :description (format nil "Exploder: ~{~A~^, ~}" members)
-                              :member-lists members
-                              :subscribers '()))))
-    (mlisp:save-state)
-    (format t "Created exploder ~A -> ~{~A~^, ~}~%" id members)
-    0))
+(define-admin-cmd* add-exploder (id &rest members) "<id> <list-id> ..."
+  (unless members
+    (format *error-output* "mlisp-admin: add-exploder requires <id> <list-id> ...~%")
+    (return-from cmd-add-exploder 1))
+  (mlisp:load-state)
+  (when (mlisp:find-list id)
+    (format *error-output* "mlisp-admin: list ~A already exists~%" id)
+    (return-from cmd-add-exploder 1))
+  (setf (getf mlisp:*state* :lists)
+        (append (getf mlisp:*state* :lists)
+                (list (list :id id
+                            :type :exploder
+                            :drop-address (format nil "mlisp-exploder-~A@localhost" id)
+                            :request-address (format nil "mlisp-exploder-~A-request@localhost" id)
+                            :description (format nil "Exploder: ~{~A~^, ~}" members)
+                            :member-lists members
+                            :subscribers '()))))
+  (mlisp:save-state)
+  (format t "Created exploder ~A -> ~{~A~^, ~}~%" id members)
+  0)
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Subcommand: flush-digest
@@ -1352,22 +1362,14 @@ Config resolution order:
 ;;; Subcommands: mlisp-bugs package management (#69, #70)
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
-(defun cmd-bugs-add-package (args)
-  "bugs-add-package <pkg> <submit-addr> [--owner <addr>]"
-  (let ((pkg    (first args))
-        (submit (second args))
-        (owner  (let ((p (position "--owner" args :test #'string=)))
-                  (when p (nth (1+ p) args)))))
-    (unless (and pkg submit)
-      (format *error-output* "mlisp-admin: bugs-add-package requires <pkg> <submit-addr>~%")
-      (return-from cmd-bugs-add-package 1))
-    (handler-case
-        (progn
-          (mlisp:add-bugs-package pkg submit :owner-address owner)
-          (format t "Registered bug package ~A (~A)~%" pkg submit)
-          0)
-      (error (e)
-        (format *error-output* "mlisp-admin: ~A~%" e) 1))))
+(define-admin-cmd+ bugs-add-package (pkg submit) ("--owner") "<pkg> <submit-addr>"
+  (handler-case
+      (progn
+        (mlisp:add-bugs-package pkg submit :owner-address owner)
+        (format t "Registered bug package ~A (~A)~%" pkg submit)
+        0)
+    (error (e)
+      (format *error-output* "mlisp-admin: ~A~%" e) 1)))
 
 (define-admin-cmd bugs-list-packages () nil
   (mlisp:load-state)
@@ -1454,15 +1456,9 @@ Config resolution order:
                                   :tag-filter      tag-filter))
     0))
 
-(defun cmd-install-bugs-procmail (args)
-  "install-bugs-procmail <pkg> [--dry-run]"
-  (let* ((pkg      (first args))
-         (dry-run  (member "--dry-run" args :test #'string=))
-         (home     (mlisp:mlisp-home))
+(define-admin-cmd+ install-bugs-procmail (pkg) (("--dry-run" :boolean)) "<pkg>"
+  (let* ((home     (mlisp:mlisp-home))
          (bugs-bin (merge-pathnames "bin/mlisp-bugs" home)))
-    (unless pkg
-      (format *error-output* "mlisp-admin: install-bugs-procmail requires <pkg>~%")
-      (return-from cmd-install-bugs-procmail 1))
     (mlisp:load-state)
     (let* ((pkg-cfg (mlisp:find-bugs-package pkg))
            (submit  (or (getf pkg-cfg :submit-address)
