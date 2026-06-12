@@ -193,7 +193,7 @@
    = (define-admin-cmd+ NAME arg-spec () usage body...)"
   `(define-admin-cmd+ ,name ,arg-spec () ,usage ,@body))
 
-(defun cmd-show-config ()
+(define-admin-cmd show-config () nil
   (format t "config-dir:    ~A~%" (mlisp:mlisp-home))
   (format t "state.sexp:    ~A~%" (mlisp:state-path))
   (format t "audit.sexp:    ~A~%" (mlisp:audit-path))
@@ -249,7 +249,7 @@
 ;;; Subcommand: list-lists
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
-(defun cmd-list-lists ()
+(define-admin-cmd list-lists () nil
   (mlisp:load-state)
   (let ((lists (getf mlisp:*state* :lists)))
     (if (null lists)
@@ -1167,7 +1167,7 @@
 ;;; Subcommand: export-metrics
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
-(defun cmd-export-metrics ()
+(define-admin-cmd export-metrics () nil
   (mlisp:load-state)
   (mlisp:write-metrics-file)
   (format t "Metrics written to ~A~%" (mlisp:metrics-path))
@@ -1464,9 +1464,9 @@ Config resolution order:
 ;;; Command dispatch table -- replaces 47-line cond chain
 (defparameter *admin-commands*
   (list
-   (cons "show-config" (lambda (_) (declare (ignore _)) (cmd-show-config)))
+   (cons "show-config" #'cmd-show-config)
    (cons "init" #'cmd-init)
-   (cons "list-lists" (lambda (_) (declare (ignore _)) (cmd-list-lists)))
+   (cons "list-lists" #'cmd-list-lists)
    (cons "list-subs" #'cmd-list-subs)
    (cons "add-sub" #'cmd-add-sub)
    (cons "rm-sub" #'cmd-rm-sub)
@@ -1475,7 +1475,7 @@ Config resolution order:
    (cons "set-option" #'cmd-set-option)
    (cons "show-bounces" #'cmd-show-bounces)
    (cons "clear-bounces" #'cmd-clear-bounces)
-   (cons "export-metrics" (lambda (_) (declare (ignore _)) (cmd-export-metrics)))
+   (cons "export-metrics" #'cmd-export-metrics)
    (cons "show-dedup" #'cmd-show-dedup)
    (cons "clear-dedup" #'cmd-clear-dedup)
    (cons "hold-queue" #'cmd-hold-queue)
