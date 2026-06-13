@@ -265,10 +265,10 @@ jobs:
             sbcl --non-interactive --load build-procmail-gen.lisp
 
             root="$(mktemp -d)/root"
-            mkdir -p "$root/usr/local/bin" "$root/usr/local/man/man1" "$root/usr/local/man/man7"
-            cp bin/* "$root/usr/local/bin/"
-            cp src/man/mlisp.1 src/man/mlisp-admin.1 src/man/mlisp-distrib.1 "$root/usr/local/man/man1/"
-            cp src/man/mlisp-intro.7 "$root/usr/local/man/man7/"
+            mkdir -p "$root/bin" "$root/man/man1" "$root/man/man7"
+            cp bin/* "$root/bin/"
+            cp src/man/mlisp.1 src/man/mlisp-admin.1 src/man/mlisp-distrib.1 "$root/man/man1/"
+            cp src/man/mlisp-intro.7 "$root/man/man7/"
 
             cat > +MANIFEST <<EOF
             name: mlisp
@@ -283,7 +283,10 @@ jobs:
             licenses: [BSD2CLAUSE]
             EOF
 
-            pkg create -M +MANIFEST -r "$root" -o .
+            # -p etc/pkg/PLIST: same prefix-relative file list used by
+            # linux-pkgsrc/netbsd-pkgsrc's pkg_create -f; pkg create resolves
+            # each entry against -r "$root" and computes checksums itself.
+            pkg create -M +MANIFEST -p etc/pkg/PLIST -r "$root" -o .
             mv mlisp-"${VER}".pkg "${name}-freebsd-x86_64.pkg" 2>/dev/null || \
               mv mlisp-"${VER}".txz "${name}-freebsd-x86_64.pkg"
 
