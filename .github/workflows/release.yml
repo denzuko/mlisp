@@ -118,6 +118,7 @@ jobs:
     name: Linux pkgsrc package
     runs-on: ubuntu-latest
     needs: linux-tarball
+    if: always() && (needs.linux-tarball.result == 'success')
     steps:
       - uses: actions/checkout@v4
 
