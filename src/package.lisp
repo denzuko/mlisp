@@ -91,6 +91,7 @@
    ;; Plugin filters
    #:invoke-filter-chain
    #:invoke-single-filter
+   #:pipe-through-command
    ;; AllFix/distrib
    #:add-file-to-distrib
    ;; mlisp-bugs (#69)
