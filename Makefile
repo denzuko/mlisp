@@ -6,7 +6,7 @@ PREFIX    ?= /usr/local
 QL_SETUP  := $(HOME)/quicklisp/setup.lisp
 SBCL_QL   := $(if $(wildcard $(QL_SETUP)),--eval '(load "$(QL_SETUP)")',)
 
-.PHONY: all build-all build build-admin build-distrib build-bugs build-procmail-gen \
+.PHONY: all build-all build \
         test test-unit test-bats clean install
 
 ## ── Default ──────────────────────────────────────────────────────────────────
@@ -14,33 +14,30 @@ SBCL_QL   := $(if $(wildcard $(QL_SETUP)),--eval '(load "$(QL_SETUP)")',)
 all: build-all
 
 ## ── Compile ──────────────────────────────────────────────────────────────────
+##
+## Pattern rule: every build-X.lisp (X != "" / plain "build.lisp") produces
+## bin/mlisp-X, depending on mlisp-X.asd + src/*.lisp + bin/mlisp (the core
+## library all other binaries link against). bin/mlisp itself is built from
+## build.lisp via mlisp.asd. BINS is derived from the filesystem, so adding
+## a new build-foo.lisp + mlisp-foo.asd automatically gets `make build-all`,
+## `make install`, and `make clean` support with zero Makefile changes.
 
-build-all: bin/mlisp bin/mlisp-admin bin/mlisp-distrib bin/mlisp-bugs bin/mlisp-procmail-gen
+EXTRA_BINS := $(patsubst build-%.lisp,mlisp-%,$(filter-out build.lisp,$(wildcard build-*.lisp)))
+BINS       := mlisp $(EXTRA_BINS)
+
+build-all: $(addprefix bin/,$(BINS))
 
 build: bin/mlisp
 
 bin/mlisp: mlisp.asd src/*.lisp build.lisp
 	$(SBCL) --non-interactive $(SBCL_QL) --load build.lisp
 
-build-admin: bin/mlisp-admin
+bin/mlisp-%: mlisp-%.asd build-%.lisp src/*.lisp bin/mlisp
+	$(SBCL) --non-interactive $(SBCL_QL) --load build-$*.lisp
 
-bin/mlisp-admin: mlisp-admin.asd src/admin.lisp bin/mlisp
-	$(SBCL) --non-interactive $(SBCL_QL) --load build-admin.lisp
-
-build-distrib: bin/mlisp-distrib
-
-bin/mlisp-distrib: mlisp-distrib.asd src/distrib.lisp bin/mlisp
-	$(SBCL) --non-interactive $(SBCL_QL) --load build-distrib.lisp
-
-build-bugs: bin/mlisp-bugs
-
-bin/mlisp-bugs: mlisp-bugs.asd src/bugs.lisp src/bugs-main.lisp bin/mlisp
-	$(SBCL) --non-interactive $(SBCL_QL) --load build-bugs.lisp
-
-build-procmail-gen: bin/mlisp-procmail-gen
-
-bin/mlisp-procmail-gen: mlisp-procmail-gen.asd src/procmail-gen.lisp src/procmail-gen-main.lisp bin/mlisp
-	$(SBCL) --non-interactive $(SBCL_QL) --load build-procmail-gen.lisp
+# build-admin / build-bugs / build-distrib / build-procmail-gen / ... aliases
+build-%: bin/mlisp-%
+	@true
 
 ## ── Tests ────────────────────────────────────────────────────────────────────
 
@@ -58,51 +55,24 @@ test-unit:
 	  --eval "(push (truename \".\") asdf:*central-registry*)" \
 	  --load test/fiveam/test-mlisp-mime.lisp
 
-test-bats: bin/mlisp bin/mlisp-admin bin/mlisp-distrib bin/mlisp-bugs bin/mlisp-procmail-gen
-	@echo "==> BATS: integration (21)"
-	MLISP_HOME=$(CURDIR) $(BATS) --tap test/bats/test_mlisp.bats
-	@echo "==> BATS: regression (8)"
-	MLISP_HOME=$(CURDIR) $(BATS) --tap test/bats/test_mlisp_regression.bats
-	@echo "==> BATS: compliance (23)"
-	MLISP_HOME=$(CURDIR) $(BATS) --tap test/bats/test_mlisp_compliance.bats
-	@echo "==> BATS: config/admin (29)"
-	MLISP_HOME=$(CURDIR) $(BATS) --tap test/bats/test_mlisp_config.bats
-	@echo "==> BATS: procmail (25)"
-	MLISP_HOME=$(CURDIR) $(BATS) --tap test/bats/test_mlisp_procmail.bats
-	@echo "==> BATS: MIME (7)"
-	MLISP_HOME=$(CURDIR) $(BATS) --tap test/bats/test_mlisp_mime.bats
-	@echo "==> BATS: features (38)"
-	MLISP_HOME=$(CURDIR) $(BATS) --tap test/bats/test_mlisp_features.bats
-	@echo "==> BATS: batch2 (33)"
-	MLISP_HOME=$(CURDIR) $(BATS) --tap test/bats/test_mlisp_batch2.bats
-	@echo "==> BATS: GPG/hash (13)"
-	MLISP_HOME=$(CURDIR) $(BATS) --tap test/bats/test_mlisp_gpg.bats
-	@echo "==> BATS: v0.4a (20)"
-	MLISP_HOME=$(CURDIR) $(BATS) --tap test/bats/test_mlisp_v04a.bats
-	@echo "==> BATS: v0.4b (15)"
-	MLISP_HOME=$(CURDIR) $(BATS) --tap test/bats/test_mlisp_v04b.bats
-	@echo "==> BATS: v0.4c/d (17)"
-	MLISP_HOME=$(CURDIR) $(BATS) --tap test/bats/test_mlisp_v04cd.bats
-	@echo "==> BATS: v0.5 (37)"
-	MLISP_HOME=$(CURDIR) $(BATS) --tap test/bats/test_mlisp_v05.bats
-	@echo "==> BATS: v0.6 (23)"
-	MLISP_HOME=$(CURDIR) $(BATS) --tap test/bats/test_mlisp_v06.bats
-	@echo "==> BATS: filters (4)"
-	MLISP_HOME=$(CURDIR) $(BATS) --tap test/bats/test_mlisp_filters.bats
-	@echo "==> BATS: bugs (29)"
-	MLISP_HOME=$(CURDIR) $(BATS) --tap test/bats/test_mlisp_bugs.bats
-	@echo "==> BATS: procmail-gen (8)"
-	MLISP_HOME=$(CURDIR) $(BATS) --tap test/bats/test_mlisp_procmail_gen.bats
+# Every test/bats/*.bats file is run; adding a new spec file picks it up
+# automatically with zero Makefile changes.
+BATS_SPECS := $(wildcard test/bats/*.bats)
+
+test-bats: $(addprefix bin/,$(BINS))
+	@for f in $(BATS_SPECS); do \
+	  echo "==> BATS: $$f"; \
+	  MLISP_HOME=$(CURDIR) $(BATS) --tap "$$f" || exit 1; \
+	 done
 
 ## ── Install ──────────────────────────────────────────────────────────────────
 
 install: build-all
 	install -d $(PREFIX)/bin
-	install -m 0755 bin/mlisp               $(PREFIX)/bin/mlisp
-	install -m 0755 bin/mlisp-admin         $(PREFIX)/bin/mlisp-admin
-	install -m 0755 bin/mlisp-distrib       $(PREFIX)/bin/mlisp-distrib
-	install -m 0755 bin/mlisp-bugs          $(PREFIX)/bin/mlisp-bugs
-	install -m 0755 bin/mlisp-procmail-gen  $(PREFIX)/bin/mlisp-procmail-gen
+	@for b in $(BINS); do \
+	  echo "install -m 0755 bin/$$b $(PREFIX)/bin/$$b"; \
+	  install -m 0755 bin/$$b $(PREFIX)/bin/$$b; \
+	 done
 	install -d $(PREFIX)/share/mlisp/state
 	install -d $(PREFIX)/share/mlisp/templates
 	install -d $(PREFIX)/share/mlisp/etc
@@ -113,7 +83,7 @@ install: build-all
 ## ── Clean ────────────────────────────────────────────────────────────────────
 
 clean:
-	rm -f bin/mlisp bin/mlisp-admin bin/mlisp-distrib bin/mlisp-bugs bin/mlisp-procmail-gen
+	rm -f $(addprefix bin/,$(BINS))
 	find . -name '*.fasl' -delete
 
 # ─── Manpages ────────────────────────────────────────────────────────────────
