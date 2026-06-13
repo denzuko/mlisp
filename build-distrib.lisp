@@ -27,9 +27,9 @@
   (let ((out (merge-pathnames "bin/mlisp-distrib" here)))
     (ensure-directories-exist out)
     (format t "~&[build] Compiling to ~A~%" out)
-    (funcall (find-symbol "SAVE-LISP-AND-DIE" :sb-ext)
+    (apply #'funcall (find-symbol "SAVE-LISP-AND-DIE" :sb-ext)
              out
              :toplevel          (find-symbol "DISTRIB-MAIN" :mlisp-distrib)
              :executable        t
-             :compression       t
-             :save-runtime-options t)))
+             :save-runtime-options t
+             (if (member :sb-core-compression *features*) '(:compression t) '()))))
