@@ -1,4 +1,4 @@
-.TH MLISP\-ADMIN 1 "June 2026" "mlisp 0.5" "User Commands"
+.TH MLISP\-ADMIN 1 "June 2026" "mlisp 0.8" "User Commands"
 .SH NAME
 mlisp\-admin \- mlisp mailing list administration tool
 .SH SYNOPSIS
@@ -304,19 +304,42 @@ lock/moderation status, configuration summary, and missing templates.
 Append procmail recipes to \fI~/.procmailrc\fR.  With \fI\-\-dry\-run\fR,
 print recipes without modifying the file.  With \fI\-\-list\fR, install
 only the recipes for the named list.
+.SS Bug tracker (mlisp\-bugs)
+.TP
+.B bugs\-add\-package \fIpkg\fR \fIsubmit\-addr\fR [\-\-owner \fIaddr\fR]
+Register a bug package. \fIsubmit\-addr\fR is the submission email address
+(e.g. \fImyproject\-bugs\-submit@lists.example.com\fR).
+.TP
+.B install\-bugs\-procmail \fIpkg\fR [\-\-dry\-run]
+Append the four procmail recipes (submit/close/append/control) for
+\fIpkg\fR to \fI~/.procmailrc\fR.
+.TP
+.B bugs\-list \fIpkg\fR [\-\-open] [\-\-closed] [\-\-severity \fIS\fR] [\-\-tag \fIT\fR]
+List bugs for \fIpkg\fR, optionally filtered.
+.TP
+.B bugs\-show \fIpkg\fR \fIN\fR
+Show full details and message thread for bug #\fIN\fR.
+.TP
+.B bugs\-report \fIpkg\fR [\-\-open] [\-\-closed] [\-\-severity \fIS\fR] [\-\-tag \fIT\fR] [\-\-summarize \fIcmd\fR]
+Generate a bug report. With \fI\-\-summarize \fIcmd\fR\fR, pipe through
+\fIcmd\fR and append output as a Summary section.
+.TP
+.B bugs\-list\-packages
+List all registered bug packages.
 .SS Metrics
 .TP
 .B export\-metrics
 Print Prometheus\-format metrics for all lists.
 .SH EXAMPLES
 .PP
-Create a complete mlisp namespace for a project:
+Zero\-config initialisation (XDG default, ~/.config/mlisp/):
 .PP
 .RS
 .nf
-mlisp\-admin \-\-home ~/.config/mlisp add\-namespace myproj myproj@example.com
-mlisp\-admin \-\-home ~/.config/mlisp install\-procmail
-mlisp\-admin \-\-home ~/.config/mlisp diagnose myproj\-discuss
+mlisp\-admin init
+mlisp\-admin add\-namespace myproj myproj@example.com
+mlisp\-admin install\-procmail
+mlisp\-admin diagnose myproj\-discuss
 .fi
 .RE
 .PP
@@ -337,6 +360,8 @@ mlisp\-admin add\-sub\-batch myproj\-discuss members.txt
 .RE
 .SH SEE ALSO
 .BR mlisp (1),
+.BR mlisp\-bugs (1),
+.BR mlisp\-procmail\-gen (1),
 .BR mlisp\-distrib (1),
 .BR mlisp\-intro (7)
 .SH AUTHORS

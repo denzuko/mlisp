@@ -1,5 +1,8 @@
-# Compiled binary
+# Compiled binaries (all built via make build-all)
 bin/mlisp
+bin/mlisp-bugs
+bin/mlisp-procmail-gen
+bin/neural
 
 # ASDF / SBCL compiled artefacts
 *.fasl
@@ -21,6 +24,4 @@ quicklisp/
 
 # Runtime state (don't commit live subscriber data)
 state/audit.sexp
-bin/mlisp-admin
 metrics/
-bin/mlisp-distrib

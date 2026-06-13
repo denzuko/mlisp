@@ -114,7 +114,7 @@ jobs:
           stage="$(mktemp -d)/${name}"
           mkdir -p "$stage/bin" "$stage/man/man1" "$stage/man/man7"
           cp bin/mlisp bin/mlisp-admin bin/mlisp-bugs bin/mlisp-distrib bin/mlisp-procmail-gen "$stage/bin/"
-          cp src/man/mlisp.1 src/man/mlisp-admin.1 src/man/mlisp-distrib.1 "$stage/man/man1/"
+          cp src/man/mlisp.1 src/man/mlisp-admin.1 src/man/mlisp-bugs.1 src/man/mlisp-distrib.1 src/man/mlisp-procmail-gen.1 "$stage/man/man1/"
           cp src/man/mlisp-intro.7 "$stage/man/man7/"
           cp LICENSE* "$stage/" 2>/dev/null || true
           tar -C "$(dirname "$stage")" -czf "${name}-linux-x86_64.tar.gz" "${name}"
@@ -222,7 +222,7 @@ jobs:
             work="$(mktemp -d)/work"
             mkdir -p "$work/bin" "$work/man/man1" "$work/man/man7"
             cp bin/* "$work/bin/"
-            cp src/man/mlisp.1 src/man/mlisp-admin.1 src/man/mlisp-distrib.1 "$work/man/man1/"
+            cp src/man/mlisp.1 src/man/mlisp-admin.1 src/man/mlisp-bugs.1 src/man/mlisp-distrib.1 src/man/mlisp-procmail-gen.1 "$work/man/man1/"
             cp src/man/mlisp-intro.7 "$work/man/man7/"
             sed "s/@PKGVERSION@/${VER}/" etc/pkg/Makefile > "$work/Makefile"
             cp etc/pkg/PLIST etc/pkg/DESCR "$work/"
@@ -276,7 +276,7 @@ jobs:
             root="$(mktemp -d)/root"
             mkdir -p "$root/usr/local/bin" "$root/usr/local/man/man1" "$root/usr/local/man/man7"
             cp bin/* "$root/usr/local/bin/"
-            cp src/man/mlisp.1 src/man/mlisp-admin.1 src/man/mlisp-distrib.1 "$root/usr/local/man/man1/"
+            cp src/man/mlisp.1 src/man/mlisp-admin.1 src/man/mlisp-bugs.1 src/man/mlisp-distrib.1 src/man/mlisp-procmail-gen.1 "$root/usr/local/man/man1/"
             cp src/man/mlisp-intro.7 "$root/usr/local/man/man7/"
 
             cat > +MANIFEST <<EOF

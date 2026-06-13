@@ -40,7 +40,9 @@ PLIST_FILES=	bin/mlisp \
 		bin/mlisp-procmail-gen \
 		man/man1/mlisp.1.gz \
 		man/man1/mlisp-admin.1.gz \
+		man/man1/mlisp-bugs.1.gz \
 		man/man1/mlisp-distrib.1.gz \
+		man/man1/mlisp-procmail-gen.1.gz \
 		man/man7/mlisp-intro.7.gz
 
 do-build:
@@ -58,7 +60,9 @@ do-install:
 	${INSTALL_PROGRAM} ${WRKSRC}/bin/mlisp-procmail-gen ${STAGEDIR}${PREFIX}/bin/
 	${INSTALL_MAN} ${WRKSRC}/src/man/mlisp.1 ${STAGEDIR}${PREFIX}/man/man1/
 	${INSTALL_MAN} ${WRKSRC}/src/man/mlisp-admin.1 ${STAGEDIR}${PREFIX}/man/man1/
+	${INSTALL_MAN} ${WRKSRC}/src/man/mlisp-bugs.1 ${STAGEDIR}${PREFIX}/man/man1/
 	${INSTALL_MAN} ${WRKSRC}/src/man/mlisp-distrib.1 ${STAGEDIR}${PREFIX}/man/man1/
+	${INSTALL_MAN} ${WRKSRC}/src/man/mlisp-procmail-gen.1 ${STAGEDIR}${PREFIX}/man/man1/
 	${INSTALL_MAN} ${WRKSRC}/src/man/mlisp-intro.7 ${STAGEDIR}${PREFIX}/man/man7/
 
 .include <bsd.port.mk>
