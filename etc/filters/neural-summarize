@@ -1,0 +1,24 @@
+#!/bin/sh
+# etc/filters/neural-summarize — wrapper for `mlisp-admin bugs-report --summarize`
+#
+# Pipes a generated bug report through neural.sh
+# (https://git.sr.ht/~denzuko/neural.sh) for a one-paragraph summary,
+# using a config.m4 that routes to a local Ollama model by default --
+# bug report contents may reference reporter email addresses, so local
+# inference keeps that data on-host (see #100's design constraints).
+#
+# Install:
+#   mlisp-admin bugs-report <pkg> --summarize /path/to/filters/neural-summarize
+#
+# Configuration (environment or edit below):
+#   NEURAL_CONFIG — path to a neural.sh config.m4 (model/endpoint routing)
+#
+# Contract: reads the report on stdin, writes a summary to stdout.
+# Non-zero exit -> mlisp-admin prints a warning and still shows the
+# report without a Summary section (see BUG-32 in
+# test/bats/test_mlisp_bugs.bats).
+
+NEURAL_CONFIG="${NEURAL_CONFIG:-/etc/mlisp/neural-summarize.m4}"
+
+exec neural.sh --config "$NEURAL_CONFIG" \
+  --prompt "Summarize this bug tracker report in one short paragraph, highlighting any critical/security-severity items first:"
