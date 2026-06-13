@@ -275,7 +275,7 @@ jobs:
             version: "${VER}"
             origin: mail/mlisp
             comment: "Common Lisp mailing list manager and Debbugs-compatible bug tracker"
-            desc: "$(cat etc/pkg/DESCR)"
+            desc: "$(tr '\n' ' ' < etc/pkg/DESCR | tr -s ' ')"
             maintainer: denzuko@dapla.net
             www: https://github.com/denzuko/mlisp
             prefix: /usr/local

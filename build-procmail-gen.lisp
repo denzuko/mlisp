@@ -23,9 +23,9 @@
   (ensure-directories-exist (merge-pathnames "bin/" here))
 
   (format t "~&[build] Compiling to ~Abin/mlisp-procmail-gen~%" here)
-  (sb-ext:save-lisp-and-die
+  (apply #'sb-ext:save-lisp-and-die
    (merge-pathnames "bin/mlisp-procmail-gen" here)
    :toplevel (symbol-function (intern "MAIN" (find-package :mlisp-procmail-gen-main)))
    :executable t
-   :compression t
-   :save-runtime-options t))
+   :save-runtime-options t
+   (if (member :sb-core-compression *features*) '(:compression t) '())))
