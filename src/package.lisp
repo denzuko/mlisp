@@ -200,6 +200,7 @@
    #:*state*
    ;; Path resolution (used by mlisp-admin)
    #:mlisp-home
+   #:mlisp-init-target
    #:*mlisp-home-override*
    #:state-path
    #:audit-path
