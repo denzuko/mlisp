@@ -9,6 +9,27 @@ If the project also mirrors to GitHub, pull requests remain functional —
 the maintainer may apply them via `git am` from the PR's email notification.
 Patches submitted by email take precedence.
 
+## Branch model (GitFlow)
+
+- **`main`** — release branch. Tagged (`vX.Y.Z`) for releases; the
+  release workflow (`.github/workflows/release.yml`) builds and attaches
+  platform packages on tag push. Nothing is committed directly to `main`
+  except merge commits from `develop` at release time.
+- **`develop`** — integration branch. All feature/fix work targets `develop`.
+- **Topic branches** — `feat/<issue>-<slug>`, `fix/<issue>-<slug>`,
+  `chore/...`, `refactor/...`, `ci/...`, `build/...`, branched from and
+  PR'd back to `develop`.
+- Periodically, `develop` is merged to `main` and tagged for a release.
+
+## Merge authority
+
+**PRs (including those opened by an AI assistant/agent) are opened for
+review and left open. CI passing is necessary but not sufficient —
+merging requires the maintainer's explicit go-ahead.** An assistant
+working on this repo must not run `gh pr merge` (with or without
+`--admin`) on its own initiative, even when all checks are green. Open
+the PR, report CI status, and stop.
+
 ## BDD spec requirement
 
 Every change requires tests written **before** the implementation:

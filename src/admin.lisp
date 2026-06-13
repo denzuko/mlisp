@@ -207,7 +207,7 @@
 
 (define-admin-cmd+ init () ("--dir") nil
   "Scaffold a new config directory with seed state and templates."
-  (let* ((dir-raw (or dir (mlisp:mlisp-home)))
+  (let* ((dir-raw (or dir (mlisp:mlisp-init-target)))
          ;; Ensure trailing slash so merge-pathnames treats as directory
          (dir (uiop:ensure-directory-pathname dir-raw))
          (state-dir  (merge-pathnames "state/"     dir))
