@@ -47,6 +47,15 @@ on:
       - "v*"
   workflow_dispatch: {}
 
+# Required for create-release (gh release create) and the per-platform
+# "Attach to release" steps (gh release upload). The default
+# GITHUB_TOKEN is read-only on this repo's workflow-permissions setting;
+# without this, `gh release create` fails with
+# 'HTTP 403: Resource not accessible by integration' (confirmed on the
+# v0.8.0 tag push -- see #97/#114 follow-up).
+permissions:
+  contents: write
+
 jobs:
   create-release:
     name: Create GitHub Release (if needed)
@@ -275,7 +284,7 @@ jobs:
             version: "${VER}"
             origin: mail/mlisp
             comment: "Common Lisp mailing list manager and Debbugs-compatible bug tracker"
-            desc: "$(cat etc/pkg/DESCR)"
+            desc: "$(tr '\n' ' ' < etc/pkg/DESCR | tr -s ' ')"
             maintainer: denzuko@dapla.net
             www: https://github.com/denzuko/mlisp
             prefix: /usr/local
@@ -283,7 +292,12 @@ jobs:
             licenses: [BSD2CLAUSE]
             EOF
 
-            pkg create -M +MANIFEST -r "$root" -o .
+            # -p etc/pkg/PLIST: same prefix-relative file list used by
+            # linux-pkgsrc/netbsd-pkgsrc's pkg_create -f. With -r "$root"
+            # and the manifest's prefix: /usr/local, pkg looks for each
+            # PLIST entry at "$root"/usr/local/<entry> (hence the nested
+            # staging above) and computes checksums itself.
+            pkg create -M +MANIFEST -p etc/pkg/PLIST -r "$root" -o .
             mv mlisp-"${VER}".pkg "${name}-freebsd-x86_64.pkg" 2>/dev/null || \
               mv mlisp-"${VER}".txz "${name}-freebsd-x86_64.pkg"
 
