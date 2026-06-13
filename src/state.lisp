@@ -6,12 +6,24 @@
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Runtime path resolution (XDG Base Dir Spec + MLISP_HOME + --home flag)
 ;;;
-;;; Priority (lowest → highest):
-;;;   /etc/mlisp/                    compiled-in default
-;;;   $XDG_CONFIG_HOME/mlisp/        XDG spec
-;;;   ~/.config/mlisp/               XDG fallback when XDG_CONFIG_HOME unset
-;;;   $MLISP_HOME                    env override
+;;; Priority (highest → lowest):
 ;;;   *mlisp-home-override*          set by --home CLI flag (highest)
+;;;   $MLISP_HOME                    env override
+;;;   $XDG_CONFIG_HOME/mlisp/        XDG spec (or ~/.config/mlisp/ fallback;
+;;;                                  ~ resolves via $HOME, falling back to
+;;;                                  (user-homedir-pathname) i.e. passwd/PAM
+;;;                                  when $HOME is unset -- see
+;;;                                  xdg-config-home)
+;;;   /etc/mlisp/                    system-wide fallback for service
+;;;                                  accounts (e.g. MTA users) with no
+;;;                                  initialized XDG config
+;;;   directory of running binary    last-resort compiled-in default
+;;;
+;;; `mlisp-admin init` (cmd-init) does NOT use this chain to pick its
+;;; *target* directory when none of the above are explicitly set --
+;;; see cmd-init in admin.lisp for the bootstrap logic, which targets
+;;; XDG (or /etc/mlisp as a last resort) unconditionally so that this
+;;; chain's XDG/etc probe-file checks succeed on every subsequent run.
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
 (defparameter *mlisp-home-override* nil
@@ -28,16 +40,45 @@
       nil))
 
 (defun xdg-config-home ()
-  "Return $XDG_CONFIG_HOME if set, else ~/.config/."
+  "Return $XDG_CONFIG_HOME if set, else ~/.config/.
+   For the home directory, $HOME takes precedence per the XDG Base
+   Directory spec, but falls back to (user-homedir-pathname) -- which
+   consults the passwd database via the OS -- when $HOME is unset.
+   This matters under cron/systemd units without PAMName=, where $HOME
+   is frequently unset even though the account has a valid passwd entry."
   (let ((xdg (sb-ext:posix-getenv "XDG_CONFIG_HOME")))
     (if (and xdg (> (length xdg) 0))
         (ensure-trailing-slash xdg)
-        (let ((home (sb-ext:posix-getenv "HOME")))
-          (when home
-            (concatenate 'string home "/.config/"))))))
+        (let ((home (or (sb-ext:posix-getenv "HOME")
+                         (ignore-errors (namestring (user-homedir-pathname))))))
+          (when (and home (> (length home) 0))
+            (concatenate 'string (ensure-trailing-slash home) ".config/"))))))
+
+(defun mlisp-init-target ()
+  "Resolve the directory `mlisp-admin init` should create/populate when
+   no --dir flag is given.
+
+   Unlike mlisp-home, this does NOT require state/state.sexp to already
+   exist at the XDG (or /etc/mlisp) path -- init's entire job is to
+   create it there. This is the fix for the XDG bootstrap chicken-and-egg
+   problem: mlisp-home's priority-3 XDG branch only returns the XDG path
+   once state.sexp exists there, which init can never satisfy on a first
+   run if it instead falls through to mlisp-home's lower priorities.
+
+   --home/MLISP_HOME (explicit overrides) are honored as-is, since they
+   carry no such existence requirement. Otherwise targets XDG
+   unconditionally, or /etc/mlisp/ if no home directory is resolvable at
+   all (xdg-config-home returns nil -- e.g. a minimal service account
+   with neither $HOME nor a passwd entry)."
+  (or
+   (ensure-trailing-slash *mlisp-home-override*)
+   (ensure-trailing-slash (sb-ext:posix-getenv "MLISP_HOME"))
+   (let ((xdg (xdg-config-home)))
+     (when xdg (concatenate 'string xdg "mlisp/")))
+   "/etc/mlisp/"))
 
 (defun mlisp-home ()
-  "Resolve config directory using priority chain.
+  "Resolve config directory using priority chain (see header comment).
    Returns a pathname string with trailing slash."
   (or
    ;; 1. --home CLI flag (highest)
@@ -51,7 +92,10 @@
          ;; Only use XDG path if state.sexp actually exists there
          (when (probe-file (concatenate 'string p "state/state.sexp"))
            p))))
-   ;; 4. Compiled-in default: directory of the running binary
+   ;; 4. /etc/mlisp/ -- system-wide fallback for service accounts
+   (when (probe-file "/etc/mlisp/state/state.sexp")
+     "/etc/mlisp/")
+   ;; 5. Compiled-in default: directory of the running binary
    (directory-namestring
     (truename sb-ext:*runtime-pathname*))))
 
