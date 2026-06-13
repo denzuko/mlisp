@@ -6,7 +6,7 @@ PREFIX    ?= /usr/local
 QL_SETUP  := $(HOME)/quicklisp/setup.lisp
 SBCL_QL   := $(if $(wildcard $(QL_SETUP)),--eval '(load "$(QL_SETUP)")',)
 
-.PHONY: all build-all build build-admin build-distrib \
+.PHONY: all build-all build build-admin build-distrib build-bugs build-procmail-gen \
         test test-unit test-bats clean install
 
 ## ── Default ──────────────────────────────────────────────────────────────────
@@ -15,7 +15,7 @@ all: build-all
 
 ## ── Compile ──────────────────────────────────────────────────────────────────
 
-build-all: bin/mlisp bin/mlisp-admin bin/mlisp-distrib
+build-all: bin/mlisp bin/mlisp-admin bin/mlisp-distrib bin/mlisp-bugs bin/mlisp-procmail-gen
 
 build: bin/mlisp
 
@@ -31,6 +31,16 @@ build-distrib: bin/mlisp-distrib
 
 bin/mlisp-distrib: mlisp-distrib.asd src/distrib.lisp bin/mlisp
 	$(SBCL) --non-interactive $(SBCL_QL) --load build-distrib.lisp
+
+build-bugs: bin/mlisp-bugs
+
+bin/mlisp-bugs: mlisp-bugs.asd src/bugs.lisp src/bugs-main.lisp bin/mlisp
+	$(SBCL) --non-interactive $(SBCL_QL) --load build-bugs.lisp
+
+build-procmail-gen: bin/mlisp-procmail-gen
+
+bin/mlisp-procmail-gen: mlisp-procmail-gen.asd src/procmail-gen.lisp src/procmail-gen-main.lisp bin/mlisp
+	$(SBCL) --non-interactive $(SBCL_QL) --load build-procmail-gen.lisp
 
 ## ── Tests ────────────────────────────────────────────────────────────────────
 
@@ -48,7 +58,7 @@ test-unit:
 	  --eval "(push (truename \".\") asdf:*central-registry*)" \
 	  --load test/fiveam/test-mlisp-mime.lisp
 
-test-bats: bin/mlisp bin/mlisp-admin bin/mlisp-distrib
+test-bats: bin/mlisp bin/mlisp-admin bin/mlisp-distrib bin/mlisp-bugs bin/mlisp-procmail-gen
 	@echo "==> BATS: integration (21)"
 	MLISP_HOME=$(CURDIR) $(BATS) --tap test/bats/test_mlisp.bats
 	@echo "==> BATS: regression (8)"
@@ -67,14 +77,32 @@ test-bats: bin/mlisp bin/mlisp-admin bin/mlisp-distrib
 	MLISP_HOME=$(CURDIR) $(BATS) --tap test/bats/test_mlisp_batch2.bats
 	@echo "==> BATS: GPG/hash (13)"
 	MLISP_HOME=$(CURDIR) $(BATS) --tap test/bats/test_mlisp_gpg.bats
+	@echo "==> BATS: v0.4a (20)"
+	MLISP_HOME=$(CURDIR) $(BATS) --tap test/bats/test_mlisp_v04a.bats
+	@echo "==> BATS: v0.4b (15)"
+	MLISP_HOME=$(CURDIR) $(BATS) --tap test/bats/test_mlisp_v04b.bats
+	@echo "==> BATS: v0.4c/d (17)"
+	MLISP_HOME=$(CURDIR) $(BATS) --tap test/bats/test_mlisp_v04cd.bats
+	@echo "==> BATS: v0.5 (37)"
+	MLISP_HOME=$(CURDIR) $(BATS) --tap test/bats/test_mlisp_v05.bats
+	@echo "==> BATS: v0.6 (23)"
+	MLISP_HOME=$(CURDIR) $(BATS) --tap test/bats/test_mlisp_v06.bats
+	@echo "==> BATS: filters (4)"
+	MLISP_HOME=$(CURDIR) $(BATS) --tap test/bats/test_mlisp_filters.bats
+	@echo "==> BATS: bugs (29)"
+	MLISP_HOME=$(CURDIR) $(BATS) --tap test/bats/test_mlisp_bugs.bats
+	@echo "==> BATS: procmail-gen (8)"
+	MLISP_HOME=$(CURDIR) $(BATS) --tap test/bats/test_mlisp_procmail_gen.bats
 
 ## ── Install ──────────────────────────────────────────────────────────────────
 
 install: build-all
 	install -d $(PREFIX)/bin
-	install -m 0755 bin/mlisp          $(PREFIX)/bin/mlisp
-	install -m 0755 bin/mlisp-admin    $(PREFIX)/bin/mlisp-admin
-	install -m 0755 bin/mlisp-distrib  $(PREFIX)/bin/mlisp-distrib
+	install -m 0755 bin/mlisp               $(PREFIX)/bin/mlisp
+	install -m 0755 bin/mlisp-admin         $(PREFIX)/bin/mlisp-admin
+	install -m 0755 bin/mlisp-distrib       $(PREFIX)/bin/mlisp-distrib
+	install -m 0755 bin/mlisp-bugs          $(PREFIX)/bin/mlisp-bugs
+	install -m 0755 bin/mlisp-procmail-gen  $(PREFIX)/bin/mlisp-procmail-gen
 	install -d $(PREFIX)/share/mlisp/state
 	install -d $(PREFIX)/share/mlisp/templates
 	install -d $(PREFIX)/share/mlisp/etc
@@ -85,7 +113,7 @@ install: build-all
 ## ── Clean ────────────────────────────────────────────────────────────────────
 
 clean:
-	rm -f bin/mlisp bin/mlisp-admin bin/mlisp-distrib
+	rm -f bin/mlisp bin/mlisp-admin bin/mlisp-distrib bin/mlisp-bugs bin/mlisp-procmail-gen
 	find . -name '*.fasl' -delete
 
 # ─── Manpages ────────────────────────────────────────────────────────────────
