@@ -22,15 +22,24 @@ name: Release
 #                   from source (~2.5min), then runs `pkg_create` using
 #                   the etc/pkg/ templates (Makefile, PLIST, DESCR),
 #                   producing mlisp-<ver>-linux-x86_64.tgz (~54MB).
-#   netbsd-pkgsrc : NOT YET IMPLEMENTED. Planned: vmactions/netbsd-vm,
-#                   reusing etc/pkg/ (shared with linux-pkgsrc above).
-#                   Needs confirmation that nested virtualization is
-#                   available on whichever runner this targets.
-#   freebsd-port  : NOT YET IMPLEMENTED. Planned: vmactions/freebsd-vm,
-#                   building via etc/freebsd-port/Makefile and packaging
-#                   a ports-skeleton tarball (source submission shape,
-#                   not a binary pkg) including a `make makesum`-generated
-#                   distinfo.
+#   netbsd-pkgsrc : NEW, UNVERIFIED. vmactions/netbsd-vm, installs sbcl
+#                   via PKG_PATH (cdn.NetBSD.org binary packages, no
+#                   pkgsrc bootstrap needed -- only consuming a binary
+#                   pkg, unlike linux-pkgsrc which builds one), builds
+#                   all 5 binaries, then pkg_create using the same
+#                   etc/pkg/ templates as linux-pkgsrc -- producing
+#                   mlisp-<ver>-netbsd-x86_64.tgz. Needs confirmation
+#                   that vmactions (nested virt) works on this runner.
+#   freebsd-pkg   : NEW, UNVERIFIED. vmactions/freebsd-vm, `pkg install
+#                   sbcl` (FreeBSD's binary pkg repo, no ports tree
+#                   needed), builds all 5 binaries, stages a root/ and
+#                   uses `pkg create -M +MANIFEST -r root` (FreeBSD's
+#                   native binary-package builder -- no ports-tree
+#                   checkout, no `make makesum`, no GH-release-tag
+#                   dependency) -- producing mlisp-<ver>-freebsd-x86_64.pkg.
+#                   etc/freebsd-port/ (ports-tree skeleton, from #102)
+#                   remains for a possible future actual ports-tree
+#                   submission, separate from this CI-produced .pkg.
 
 on:
   push:
@@ -171,3 +180,123 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "${GITHUB_REF#refs/tags/}" "${{ env.ARTIFACT }}" --clobber
+
+  netbsd-pkgsrc:
+    name: NetBSD pkgsrc package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine version
+        id: ver
+        run: |
+          ref="${GITHUB_REF#refs/tags/v}"
+          if [ "$ref" = "$GITHUB_REF" ]; then ref="0.0.0-dev"; fi
+          echo "version=$ref" >> "$GITHUB_OUTPUT"
+
+      - name: Build in NetBSD VM and pkg_create
+        uses: vmactions/netbsd-vm@v1
+        with:
+          envs: "VER"
+          prepare: |
+            export PKG_PATH="https://cdn.NetBSD.org/pub/pkgsrc/packages/NetBSD/$(uname -m)/$(uname -r | cut -d_ -f1)/All"
+            /usr/sbin/pkg_add sbcl
+          run: |
+            set -x
+            export VER="${{ steps.ver.outputs.version }}"
+            name="mlisp-${VER}"
+            sbcl --non-interactive --load build.lisp
+            sbcl --non-interactive --load build-admin.lisp
+            sbcl --non-interactive --load build-bugs.lisp
+            sbcl --non-interactive --load build-distrib.lisp
+            sbcl --non-interactive --load build-procmail-gen.lisp
+            work="$(mktemp -d)/work"
+            mkdir -p "$work/bin" "$work/man/man1" "$work/man/man7"
+            cp bin/* "$work/bin/"
+            cp src/man/mlisp.1 src/man/mlisp-admin.1 src/man/mlisp-distrib.1 "$work/man/man1/"
+            cp src/man/mlisp-intro.7 "$work/man/man7/"
+            sed "s/@PKGVERSION@/${VER}/" etc/pkg/Makefile > "$work/Makefile"
+            cp etc/pkg/PLIST etc/pkg/DESCR "$work/"
+            pkg_create -c etc/pkg/DESCR -d etc/pkg/DESCR \
+              -f etc/pkg/PLIST -I /usr/pkg -p "$work" \
+              -U "${name}-netbsd-x86_64.tgz"
+
+      - name: Upload netbsd artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: netbsd-x86_64-pkgsrc
+          path: "mlisp-*-netbsd-x86_64.tgz"
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          v="${{ steps.ver.outputs.version }}"
+          gh release upload "${GITHUB_REF#refs/tags/}" "mlisp-${v}-netbsd-x86_64.tgz" --clobber
+
+  freebsd-pkg:
+    name: FreeBSD pkg
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine version
+        id: ver
+        run: |
+          ref="${GITHUB_REF#refs/tags/v}"
+          if [ "$ref" = "$GITHUB_REF" ]; then ref="0.0.0-dev"; fi
+          echo "version=$ref" >> "$GITHUB_OUTPUT"
+
+      - name: Build in FreeBSD VM and pkg create
+        uses: vmactions/freebsd-vm@v1
+        with:
+          envs: "VER"
+          prepare: |
+            pkg install -y sbcl
+          run: |
+            set -x
+            export VER="${{ steps.ver.outputs.version }}"
+            name="mlisp-${VER}"
+            sbcl --non-interactive --load build.lisp
+            sbcl --non-interactive --load build-admin.lisp
+            sbcl --non-interactive --load build-bugs.lisp
+            sbcl --non-interactive --load build-distrib.lisp
+            sbcl --non-interactive --load build-procmail-gen.lisp
+
+            root="$(mktemp -d)/root"
+            mkdir -p "$root/usr/local/bin" "$root/usr/local/man/man1" "$root/usr/local/man/man7"
+            cp bin/* "$root/usr/local/bin/"
+            cp src/man/mlisp.1 src/man/mlisp-admin.1 src/man/mlisp-distrib.1 "$root/usr/local/man/man1/"
+            cp src/man/mlisp-intro.7 "$root/usr/local/man/man7/"
+
+            cat > +MANIFEST <<EOF
+            name: mlisp
+            version: "${VER}"
+            origin: mail/mlisp
+            comment: "Common Lisp mailing list manager and Debbugs-compatible bug tracker"
+            desc: "$(cat etc/pkg/DESCR)"
+            maintainer: denzuko@dapla.net
+            www: https://github.com/denzuko/mlisp
+            prefix: /usr/local
+            licenselogic: single
+            licenses: [BSD2CLAUSE]
+            EOF
+
+            pkg create -M +MANIFEST -r "$root" -o .
+            mv mlisp-"${VER}".pkg "${name}-freebsd-x86_64.pkg" 2>/dev/null || \
+              mv mlisp-"${VER}".txz "${name}-freebsd-x86_64.pkg"
+
+      - name: Upload freebsd artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: freebsd-x86_64-pkg
+          path: "mlisp-*-freebsd-x86_64.pkg"
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          v="${{ steps.ver.outputs.version }}"
+          gh release upload "${GITHUB_REF#refs/tags/}" "mlisp-${v}-freebsd-x86_64.pkg" --clobber
