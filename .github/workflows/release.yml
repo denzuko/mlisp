@@ -1,10 +1,19 @@
 name: Release
 
-# Triggered on version tags (v0.1.0, v0.7.0, ...). Builds and attaches
-# platform artifacts to the GitHub Release for that tag (created/updated
-# via the existing `gh release create` flow -- see CHANGELOG.md history).
+# Triggered on version tags (v0.1.0, v0.7.0, ...). Creates the GitHub
+# Release for the tag (if it doesn't already exist) via `gh release
+# create --generate-notes`, then builds and attaches platform artifacts.
+# Fully automated end-to-end as of create-release below -- previously
+# `gh release upload` (used by the per-platform jobs) required the
+# release to already exist, which was only true because v0.1.0-v0.7.0
+# were created manually during the #97 backfill. Any *new* tag push
+# would have failed at the upload step with no release to attach to.
 #
 # Status (see #97 for design discussion):
+#   create-release: WORKING. `gh release view <tag> || gh release create
+#                   <tag> --generate-notes`. Tag-push only (skipped on
+#                   workflow_dispatch from a branch, where there's no
+#                   tag to create a release for).
 #   linux-tarball : working. Builds all 5 binaries via the existing
 #                   build*.lisp scripts and packages a generic
 #                   linux-x86_64 tarball with manpages + LICENSE.
@@ -30,9 +39,29 @@ on:
   workflow_dispatch: {}
 
 jobs:
+  create-release:
+    name: Create GitHub Release (if needed)
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create release if it doesn't exist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists; leaving notes as-is."
+          else
+            gh release create "$tag" --title "$tag" --generate-notes
+          fi
+
   linux-tarball:
     name: Linux binary tarball
     runs-on: ubuntu-latest
+    needs: create-release
+    if: always() && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped')
     steps:
       - uses: actions/checkout@v4
 
