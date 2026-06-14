@@ -1,0 +1,116 @@
+.TH MLISP\-BUGS 1 "June 2026" "mlisp 0.8" "User Commands"
+.SH NAME
+mlisp\-bugs \- Debbugs\-compatible email bug tracker for mlisp
+.SH SYNOPSIS
+.B mlisp\-bugs
+.B \-\-mode
+.I mode
+.I pkg
+.SH DESCRIPTION
+.B mlisp\-bugs
+processes email submitted to a bug package's wire addresses.
+Bugs are stored as Maildir messages; state is derived by scanning
+the archive, exactly as Debbugs does.
+.PP
+Use
+.BR mlisp\-admin (1)
+to manage packages and query bug state.
+.SH OPTIONS
+.TP
+.B \-\-home \fIdir\fR
+Override the config/state directory (default: XDG or /etc/mlisp).
+.TP
+.B \-\-mode submit
+Accept a new bug report submitted to \fIpkg\fR\-bugs\-submit@.
+.TP
+.B \-\-mode close
+Mark bug N as closed; called via \fIpkg\fR\-bugs\-N\-done@.
+.TP
+.B \-\-mode append
+Append a follow\-up message to bug N; called via \fIpkg\fR\-bugs\-N@.
+.TP
+.B \-\-mode control
+Process Debbugs control commands submitted to \fIpkg\fR\-bugs\-control@.
+.SH WIRE ADDRESSES
+.TP
+.I pkg\-bugs\-submit@host
+Submit a new bug.  The message body should include
+.B Package:
+and optionally
+.B Severity:
+pseudo-headers.
+.TP
+.I pkg\-bugs\-N@host
+Append a message to bug #N.
+.TP
+.I pkg\-bugs\-N\-done@host
+Close bug #N.
+.TP
+.I pkg\-bugs\-control@host
+Send Debbugs control commands (severity, tags, close, reopen,
+retitle, owner, forwarded, block, merge, quit).
+.SH CONTROL COMMANDS
+.TP
+.B severity \fIN\fR \fIsev\fR
+Set severity of bug #N to \fIsev\fR (critical, serious, grave, normal, minor, wishlist).
+.TP
+.B tags \fIN\fR \fItag ...\fR
+Add tags to bug #N.
+.TP
+.B close \fIN\fR
+Close bug #N.
+.TP
+.B reopen \fIN\fR
+Reopen bug #N.
+.TP
+.B retitle \fIN\fR \fItitle\fR
+Change the title of bug #N.
+.TP
+.B owner \fIN\fR \fIaddr\fR
+Set the owner of bug #N.
+.TP
+.B forwarded \fIN\fR \fIurl\fR
+Mark bug #N as forwarded upstream.
+.TP
+.B block \fIN\fR by \fIM ...\fR
+Mark bug #N as blocked by bugs M...
+.TP
+.B merge \fIN\fR \fIM ...\fR
+Merge bugs N and M.
+.TP
+.B quit
+Stop processing further control commands.
+.SH ENVIRONMENT
+.TP
+.B MLISP_HOME
+Config/state directory.  Resolved in priority order:
+\-\-home flag > $MLISP_HOME > $XDG_CONFIG_HOME/mlisp/ > ~/.config/mlisp/
+> /etc/mlisp/.
+.SH EXAMPLES
+.PP
+Wire up a bug package via procmail:
+.PP
+.RS
+.nf
+mlisp\-admin bugs\-add\-package myproj myproj\-bugs\-submit@lists.example.com
+mlisp\-admin install\-bugs\-procmail myproj
+.fi
+.RE
+.PP
+Submit a test bug by email:
+.PP
+.RS
+.nf
+printf 'From: you@example.com\\r\\nSubject: test bug\\r\\n\\r\\n\
+Package: myproj\\r\\nSeverity: normal\\r\\n\\r\\nDescription here\\r\\n' \\
+  | mlisp\-bugs \-\-mode submit myproj
+.fi
+.RE
+.SH SEE ALSO
+.BR mlisp (1),
+.BR mlisp\-admin (1),
+.BR mlisp\-intro (7)
+.SH AUTHORS
+Dwight Spencer <dwight@dapla.net>
+.br
+Da Planet Security \(em https://dapla.net/

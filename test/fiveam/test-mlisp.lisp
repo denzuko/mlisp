@@ -298,4 +298,8 @@
 
 (let ((results (run 'mlisp-suite)))
   (explain! results)
-  (sb-ext:exit :code (if (every #'fiveam::test-passed-p results) 0 1)))
+  (let ((ok (every #'fiveam::test-passed-p results)))
+    (if (and (boundp 'cl-user::*mlisp-test-no-exit*)
+             (symbol-value 'cl-user::*mlisp-test-no-exit*))
+        (unless ok (error "mlisp-suite: FiveAM tests failed"))
+        (sb-ext:exit :code (if ok 0 1)))))

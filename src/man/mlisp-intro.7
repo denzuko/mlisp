@@ -1,4 +1,4 @@
-.TH MLISP\-INTRO 7 "June 2026" "mlisp 0.5" "Miscellaneous"
+.TH MLISP\-INTRO 7 "June 2026" "mlisp 0.8" "Miscellaneous"
 .SH NAME
 mlisp\-intro \- introduction to the mlisp mailing list manager
 .SH DESCRIPTION
@@ -75,7 +75,6 @@ install \-m 644 src/man/mlisp\-intro.7 /usr/local/share/man/man7/
 .PP
 .RS
 .nf
-export MLISP_HOME=~/.config/mlisp
 mlisp\-admin init
 mlisp\-admin add\-namespace myproject myproject@example.com
 mlisp\-admin install\-procmail
@@ -487,9 +486,38 @@ Help response template
 .I $MLISP_HOME/templates/<list>.footer.sexp
 Compliance footer template
 .TP
-.I $MLISP_HOME/var/archive/<list>/
-Maildir archive (if enabled)
-.SH 15. PLUGIN FILTERS
+.I $MAILDIR/lists/<list>/  (or $MLISP_HOME/state/maildir/<list>/ if \\fB$MAILDIR\\fR unset)
+Maildir archive used by
+.B search
+,
+.B index
+,
+.B get
+, and
+.B mlisp\\-bugs
+. See
+.B "MAILDIR ARCHIVE LOCATION"
+below.
+.SH 15. MAILDIR ARCHIVE LOCATION
+mlisp's internal per\\-list Maildir archive follows the POSIX/
+freedesktop.org \\fB$MAILDIR\\fR convention also honored by smartlist,
+procmail, debbugs, and notmuch:
+.PP
+.RS
+.nf
+$MAILDIR set:    $MAILDIR/lists/<list\\-id>/
+$MAILDIR unset:  $MLISP_HOME/state/maildir/<list\\-id>/
+.fi
+.RE
+.PP
+\\fB$MAIL\\fR (the mbox\\-format equivalent) is not used: mlisp only writes
+Maildir\\-format archives.
+.PP
+This is independent of the per\\-list
+.B "set\\-option <list> maildir\\-path <path>"
+mechanism, which writes an additional explicit\\-path archive copy for
+external indexing regardless of \\fB$MAILDIR\\fR.
+.SH 16. PLUGIN FILTERS
 mlisp supports external filter programs at two pipeline hook points.
 Filters are arbitrary executables that receive the message on stdin and
 return a modified (or unmodified) message on stdout.
@@ -531,7 +559,7 @@ Example filter scripts are in \fIetc/filters/\fR:
 \fIspamassassin\fR (SpamAssassin pre\-filter),
 \fIclamav\fR (ClamAV pre\-filter),
 \fIgemini\-archive\fR (post\-filter that writes to a Gemini capsule).
-.SH 16. SUBSCRIBER SELF\-SERVICE COMMANDS
+.SH 17. SUBSCRIBER SELF\-SERVICE COMMANDS
 Subscribers send commands to the \fI\-request\fR address by email.
 .PP
 .TP
@@ -561,7 +589,7 @@ Retrieve archived message \fIN\fR (from \fBindex\fR output).
 .TP
 .B files [\fIlist\fR]
 List files in the \fI\-distrib\fR archive.
-.SH 17. FILE DISTRIBUTION (ALLFIX\-COMPATIBLE)
+.SH 18. FILE DISTRIBUTION (ALLFIX\-COMPATIBLE)
 The \fI\-distrib\fR subgroup handles file distribution.
 .PP
 Add a file to the archive and announce it (AllFix HATCH equivalent):

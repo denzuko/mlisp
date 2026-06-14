@@ -1,24 +1,25 @@
 #!/bin/sh
-# etc/filters/neural-summarize — wrapper for `mlisp-admin bugs-report --summarize`
+# etc/filters/neural-summarize — mlisp-admin bugs-report --summarize wrapper
 #
-# Pipes a generated bug report through neural.sh
-# (https://git.sr.ht/~denzuko/neural.sh) for a one-paragraph summary,
-# using a config.m4 that routes to a local Ollama model by default --
-# bug report contents may reference reporter email addresses, so local
-# inference keeps that data on-host (see #100's design constraints).
+# Uses the `neural` binary, built by `make build-all` (which runs
+# `make -C vendor/neural.sh build` and copies the result to bin/neural).
+# The built binary is a self-contained shell script (bash + curl + jq +
+# jo at runtime).
 #
-# Install:
-#   mlisp-admin bugs-report <pkg> --summarize /path/to/filters/neural-summarize
+# Wire up:
+#   mlisp-admin bugs-report <pkg> \
+#       --summarize /path/to/etc/filters/neural-summarize
 #
-# Configuration (environment or edit below):
-#   NEURAL_CONFIG — path to a neural.sh config.m4 (model/endpoint routing)
-#
-# Contract: reads the report on stdin, writes a summary to stdout.
-# Non-zero exit -> mlisp-admin prints a warning and still shows the
-# report without a Summary section (see BUG-32 in
-# test/bats/test_mlisp_bugs.bats).
+# CONFIGURATION
+#   The model/endpoint are whatever vendor/neural.sh was built with --
+#   its default (vendor/neural.sh/src/neural.m4) is OpenAI
+#   text-davinci-003, which requires the OPENAI_API_KEY environment
+#   variable to be set. See vendor/neural.sh's own docs to change the
+#   model/endpoint.
 
-NEURAL_CONFIG="${NEURAL_CONFIG:-/etc/mlisp/neural-summarize.m4}"
+prompt="Summarize this bug tracker report in one short paragraph. \
+Highlight any critical or security-severity items first. Be concise:"
 
-exec neural.sh --config "$NEURAL_CONFIG" \
-  --prompt "Summarize this bug tracker report in one short paragraph, highlighting any critical/security-severity items first:"
+report=$(cat)
+
+printf '%s\n\n%s' "$prompt" "$report" | neural -
