@@ -19,6 +19,9 @@ src/mlisp.lisp.bak
 # ASDF output cache
 .cache/
 
+# 40ants-doc build output (docs/index.lisp -> docs/build/)
+docs/build/
+
 # qlot local environment (qlfile.lock is committed; .qlot/ is not)
 .qlot/
 qlfile.lock

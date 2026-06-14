@@ -119,7 +119,7 @@ jobs:
       - name: Setup Common Lisp (Roswell + Qlot)
         uses: 40ants/setup-lisp@v4
         with:
-          asdf-system: mlisp
+          asdf-system: mlisp-docs
           qlfile-template: |
             ql fiveam
             ultralisp 40ants-doc
@@ -127,7 +127,7 @@ jobs:
       - name: Build and publish documentation
         uses: 40ants/build-docs@v1
         with:
-          asdf-system: mlisp
+          asdf-system: mlisp-docs
 
   notify-failure:
     name: Notify on failure
