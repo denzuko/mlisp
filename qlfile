@@ -1,0 +1,10 @@
+; qlfile -- qlot dependency manifest for mlisp
+; Run: qlot install  (creates qlfile.lock + .qlot/ local environment)
+; See: https://github.com/fukamachi/qlot
+
+; Primary BDD/unit testing framework
+ql fiveam
+
+; Documentation generation (40ANTS-DOC-FULL: the "/locatives/asdf-system"
+; variant, pulling in alexandria/cl-change-case/cl-ppcre/cl-unicode/closer-mop)
+ql 40ants-doc

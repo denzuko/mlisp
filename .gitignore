@@ -19,8 +19,9 @@ src/mlisp.lisp.bak
 # ASDF output cache
 .cache/
 
-# Quicklisp local
-quicklisp/
+# qlot local environment (qlfile.lock is committed; .qlot/ is not)
+.qlot/
+qlfile.lock
 
 # Runtime state (don't commit live subscriber data)
 state/audit.sexp

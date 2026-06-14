@@ -1,10 +1,20 @@
-# mlisp Makefile — v0.3.0
+# mlisp Makefile — v0.8.0
 
 SBCL      ?= sbcl
 BATS      ?= bats
 PREFIX    ?= /usr/local
-QL_SETUP  := $(HOME)/quicklisp/setup.lisp
-SBCL_QL   := $(if $(wildcard $(QL_SETUP)),--eval '(load "$(QL_SETUP)")',)
+
+# Quicklisp: check standard locations + .qlot/ (qlot managed environment)
+QL_SETUP  := $(firstword $(wildcard \
+  .qlot/setup.lisp \
+  $(HOME)/quicklisp/setup.lisp \
+  $(HOME)/.quicklisp/setup.lisp \
+  /home/claude/quicklisp/setup.lisp))
+SBCL_QL   := $(if $(QL_SETUP),--eval '(load "$(QL_SETUP)")',)
+
+# qlot: use if available (40ants CI workflow uses it)
+QLOT      ?= $(shell command -v qlot 2>/dev/null)
+QLOT_EXEC := $(if $(QLOT),$(QLOT) exec,)
 
 .PHONY: all build-all build \
         deps \
@@ -56,17 +66,14 @@ build-%: bin/mlisp-%
 
 test: test-unit test-bats
 
+# Primary unit/BDD tests via FiveAM + asdf:test-system.
+# Uses qlot exec when available (40ants CI), falls back to direct sbcl.
 test-unit:
-	@echo "==> FiveAM: mlisp"
-	$(SBCL) --non-interactive $(SBCL_QL) \
+	@echo "==> FiveAM unit tests (primary BDD: mlisp-suite + mime-suite)"
+	$(QLOT_EXEC) $(SBCL) --non-interactive $(SBCL_QL) \
 	  --eval "(ql:quickload :fiveam :silent t)" \
 	  --eval "(push (truename \".\") asdf:*central-registry*)" \
-	  --load test/fiveam/test-mlisp.lisp
-	@echo "==> FiveAM: mlisp-mime"
-	$(SBCL) --non-interactive $(SBCL_QL) \
-	  --eval "(ql:quickload :fiveam :silent t)" \
-	  --eval "(push (truename \".\") asdf:*central-registry*)" \
-	  --load test/fiveam/test-mlisp-mime.lisp
+	  --eval "(asdf:test-system :mlisp)"
 
 # Every test/bats/*.bats file is run; adding a new spec file picks it up
 # automatically with zero Makefile changes.
