@@ -4,7 +4,10 @@
 ;
 ; Primary BDD/unit testing framework (used by 'make test-unit' / CI
 ; unit-tests job). The 'docs' CI job uses its own qlfile-template
-; (inline in ci.yml) with an additional Ultralisp dist source for
-; 40ants-doc, which is not in the standard Quicklisp dist.
+; (inline in ci.yml) with an additional 'ultralisp 40ants-doc' line --
+; 40ants-doc is not in the standard Quicklisp dist, and qlot's `ql`
+; directive always resolves against the quicklisp dist regardless of
+; any additional `dist` lines; the package-specific `ultralisp <pkg>`
+; directive is required instead.
 
 ql fiveam

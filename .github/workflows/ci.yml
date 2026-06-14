@@ -118,9 +118,8 @@ jobs:
         with:
           asdf-system: mlisp
           qlfile-template: |
-            dist ultralisp http://dist.ultralisp.org/
             ql fiveam
-            ql 40ants-doc
+            ultralisp 40ants-doc
 
       - name: Build and publish documentation
         uses: 40ants/build-docs@v1
