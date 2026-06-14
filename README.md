@@ -16,11 +16,12 @@ procmail-based MTA environment. Ships as five self-contained SBCL binaries
 **v0.8.0** · 381 BATS integration tests · 78 FiveAM unit tests · Actively developed
 
 ```
-v0.1  Core delivery, subscribe/unsubscribe, procmail templates
+v0.1  Core delivery, subscribe/unsubscribe, troff templates
 v0.2  Compliance (CAN-SPAM, GDPR, CASL, LGPD), audit log
 v0.3  MIME, BCC delivery, RFC 2369 headers, bounce management,
       Prometheus metrics, Maildir, mlisp-distrib binary
-v0.4  SHA-256 contacts, GPG require-signed, DMARC rewrite, VERP,
+v0.4  SHA-256 contacts, GPG require-signed, procmail integration,
+      DMARC rewrite, VERP,
       LDIF export, double opt-in, mass subscribe, bounce thresholds
 v0.5  9 subgroups, attachment policy, subject filtering, message
       numbering, rate limiting, embargo, DKIM strip, RFC 8058,
@@ -95,7 +96,8 @@ state/state.sexp      list configs + subscriber database
 state/audit.sexp      append-only event log
 state/held/           moderation queue
 state/pending/        double opt-in confirmation tokens
-state/maildir/        per-list message archives (search/index/get)
+state/maildir/        internal per-list archive (search/index/get; always
+                      present, separate from any external $MAILDIR)
 state/distrib/        file distribution archives
 state/bugs/           per-package bug Maildirs (mlisp-bugs)
 templates/            welcome / goodbye / help / footer templates
@@ -211,6 +213,9 @@ unsubscribe-url      https://...   (RFC 8058 one-click)
 archive-url          https://...   (List-Archive header)
 search-enabled       true|false
 advertised           true|false
+maildir-path         /path/to/$MAILDIR  (external archive for notmuch/mutt;
+                     separate from the internal state/maildir/ used by
+                     search/index/get)
 pre-filter           /path/to/filter
 post-filter          /path/to/filter
 ```
