@@ -192,31 +192,28 @@ Bundled examples in `etc/filters/`: SpamAssassin, ClamAV, Gemini archive.
 
 ## neural.sh integration (digest/report summarization)
 
-`neural` is a self-contained shell script (bash + curl + jq + jo at
-runtime, no m4) compiled at build time from `etc/neural-mlisp.m4`
-using the macro DSL from the vendored `vendor/neural.sh` submodule
-(`config.m4`). `make build-all` builds it to `bin/neural` alongside
-the mlisp binaries; `make install` installs it to `PREFIX/bin/`.
+`neural` is the vendored `vendor/neural.sh` submodule's own build
+output: a self-contained shell script (bash + curl + jq + jo at
+runtime). `make build-all` runs `make -C vendor/neural.sh build` and
+copies the result to `bin/neural` alongside the mlisp binaries;
+`make install` installs it to `PREFIX/bin/`.
 
 ```sh
-# First-time setup: install build/runtime deps (curl, jq, jo, m4)
+# First-time setup: install build/runtime deps (curl, jq, jo, m4 --
+# m4 is vendor/neural.sh's own build dependency, used internally)
 make deps
 
 # Build everything including neural
 make build-all
 
-# Summarize a bug report (uses local Ollama by default)
-mlisp-admin bugs-report myproject \
+# Summarize a bug report
+OPENAI_API_KEY=sk-... mlisp-admin bugs-report myproject \
     --summarize etc/filters/neural-summarize
 ```
 
-The model and endpoint are compiled into `bin/neural` at build time
-from `etc/neural-mlisp.m4` -- they are **not** runtime-configurable via
-environment variables. The default is local Ollama
-(`http://localhost:11434`), so bug reports -- which may contain
-reporter email addresses -- stay on-host. To use OpenAI or another
-OpenAI-compatible endpoint, edit `etc/neural-mlisp.m4` (see its
-comments for the `config.m4` macros) and run `make bin/neural` again.
+The model/endpoint are whatever `vendor/neural.sh` was built with --
+its default is OpenAI `text-davinci-003`, requiring `OPENAI_API_KEY`.
+See `vendor/neural.sh`'s own docs to change the model/endpoint.
 
 ## Key `set-option` keys
 
