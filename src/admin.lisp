@@ -1416,10 +1416,20 @@ Config resolution order:
     (write-string report)
     (when summarize
       (multiple-value-bind (summary code) (mlisp:pipe-through-command summarize report)
-        (if (= code 0)
-            (format t "~%--- Summary (via ~A) ---~%~A~%" summarize summary)
-            (format *error-output* "mlisp-admin: --summarize command ~S exited ~A~%"
-                    summarize code)))))
+        (let ((summary (string-trim '(#\Space #\Tab #\Newline #\Return) (or summary ""))))
+          (cond
+            ((and (= code 0) (> (length summary) 0))
+             (format t "~%--- Summary (via ~A) ---~%~A~%" summarize summary))
+            ((/= code 0)
+             (format *error-output* "mlisp-admin: --summarize command ~S exited ~A~%"
+                     summarize code))
+            (t
+             ;; exit 0 but empty output: e.g. neural.sh's curl|while|xargs
+             ;; pipeline always exits 0 even when curl fails to connect
+             ;; (upstream neural.sh behavior, see etc/neural-mlisp.m4).
+             (format *error-output*
+                     "mlisp-admin: --summarize command ~S produced no output~%"
+                     summarize)))))))
   0)
 
 (define-admin-cmd+ install-bugs-procmail (pkg) (("--dry-run" :boolean)) "<pkg>"

@@ -362,3 +362,16 @@ teardown() { rm -rf "${SCRATCH}"; }
     [[ "$output" == *"--summarize command"*"exited"* ]]
 }
 
+@test "BUG-33 bugs-report --summarize with empty output (exit 0) warns, no Summary section" {
+    "${ADMIN_BIN}" bugs-add-package mlisp mlisp-bugs-submit@panix.com
+
+    # Simulates neural.sh's curl|while|xargs pipeline, which exits 0
+    # with empty stdout when curl fails to connect (e.g. no Ollama
+    # running at the configured endpoint).
+    run "${ADMIN_BIN}" bugs-report mlisp --summarize "true"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Bug report for mlisp"* ]]
+    [[ "$output" != *"--- Summary"* ]]
+    [[ "$output" == *"--summarize command"*"produced no output"* ]]
+}
+

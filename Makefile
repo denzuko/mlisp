@@ -39,18 +39,28 @@ deps:
 
 EXTRA_BINS := $(patsubst build-%.lisp,mlisp-%,$(filter-out build.lisp,$(wildcard build-*.lisp)))
 BINS       := mlisp $(EXTRA_BINS)
-NEURAL_SRC := vendor/neural.sh/pkg/neural.sh/.local/bin/neural
 
 build-all: $(addprefix bin/,$(BINS)) bin/neural
 
 build: bin/mlisp
 
-bin/neural: $(NEURAL_SRC)
-	cp $(NEURAL_SRC) bin/neural
+# bin/neural is built from mlisp's own m4 template (etc/neural-mlisp.m4),
+# which `include()`s vendor/neural.sh/src/config.m4's macro library
+# (ai_model/endpoint/useJo/etc -- the same DSL vendor/neural.sh's own
+# Makefile uses for its default OpenAI-davinci-003 build, see
+# vendor/neural.sh/src/neural.m4). m4 expands this at build time into a
+# self-contained shell script (bash + curl + jq + jo at runtime, no m4) --
+# defaulting to local Ollama per README's privacy rationale. To change
+# the model/endpoint, edit etc/neural-mlisp.m4 and rebuild; there is no
+# runtime env-var configuration (see comments in that file).
+bin/neural: etc/neural-mlisp.m4 vendor/neural.sh/src/config.m4
+	m4 -I vendor/neural.sh/src/ etc/neural-mlisp.m4 > bin/neural
 	chmod +x bin/neural
 
-$(NEURAL_SRC): vendor/neural.sh/Makefile
-	$(MAKE) -C vendor/neural.sh build
+# vendor/neural.sh/src/config.m4 comes from the git submodule; if it's
+# missing the submodule wasn't checked out.
+vendor/neural.sh/src/config.m4:
+	git submodule update --init vendor/neural.sh
 
 bin/mlisp: mlisp.asd src/*.lisp build.lisp
 	$(SBCL) --non-interactive $(SBCL_QL) --load build.lisp

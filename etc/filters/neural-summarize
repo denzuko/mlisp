@@ -1,25 +1,22 @@
 #!/bin/sh
 # etc/filters/neural-summarize — mlisp-admin bugs-report --summarize wrapper
 #
-# Uses the neural binary built from vendor/neural.sh (via `make build-all`
-# or `make -C vendor/neural.sh build` + copy to bin/). The built binary
-# is a self-contained shell script requiring only: bash, curl, jq, jo.
+# Uses the `neural` binary, built from etc/neural-mlisp.m4 via
+# `make build-all` (or `make bin/neural`). The built binary is a
+# self-contained shell script (bash + curl + jq + jo at runtime).
 #
 # Wire up:
 #   mlisp-admin bugs-report <pkg> \
 #       --summarize /path/to/etc/filters/neural-summarize
 #
-# ENVIRONMENT
-#   NEURAL_ENDPOINT — OpenAI-compatible base URL
-#                     Default: http://localhost:11434/v1/completions (Ollama)
-#   NEURAL_MODEL    — model name  Default: llama3.2
-#   OPENAI_API_KEY  — API key (empty string is valid for Ollama)
-#
-# Local Ollama is the recommended default: bug reports may contain
-# reporter email addresses and should not leave the host.
-
-: "${NEURAL_ENDPOINT:=http://localhost:11434/v1/completions}"
-: "${NEURAL_MODEL:=llama3.2}"
+# CONFIGURATION
+#   The model and endpoint are NOT runtime-configurable -- they are
+#   compiled into bin/neural at build time from etc/neural-mlisp.m4
+#   (neural.sh's config.m4 DSL; see comments in that file). The
+#   default is local Ollama (http://localhost:11434), so bug reports
+#   -- which may contain reporter email addresses -- stay on-host.
+#   To use OpenAI or another endpoint, edit etc/neural-mlisp.m4 and
+#   run `make bin/neural` again.
 
 prompt="Summarize this bug tracker report in one short paragraph. \
 Highlight any critical or security-severity items first. Be concise:"
