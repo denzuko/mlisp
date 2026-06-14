@@ -202,6 +202,7 @@
    ;; Path resolution (used by mlisp-admin)
    #:mlisp-home
    #:mlisp-init-target
+   #:maildir-root
    #:*mlisp-home-override*
    #:state-path
    #:audit-path

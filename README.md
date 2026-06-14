@@ -89,21 +89,44 @@ mlisp-distrib <list-id> <file>           # file distribution (AllFix-compatible)
 mlisp-procmail-gen <recipe.lisp>         # procmailrc DSL compiler
 ```
 
-All state lives under `$MLISP_HOME` (default: `~/.config/mlisp/`):
+All state lives under `$MLISP_HOME` (default: `~/.config/mlisp/`),
+except per-list/per-package Maildir archives (see below):
 
 ```
 state/state.sexp      list configs + subscriber database
 state/audit.sexp      append-only event log
 state/held/           moderation queue
 state/pending/        double opt-in confirmation tokens
-state/maildir/        internal per-list archive (search/index/get; always
-                      present, separate from any external $MAILDIR)
+state/maildir/        per-list/per-package archive fallback when
+                      $MAILDIR is unset (search/index/get, mlisp-bugs)
 state/distrib/        file distribution archives
-state/bugs/           per-package bug Maildirs (mlisp-bugs)
 templates/            welcome / goodbye / help / footer templates
 etc/filters/          example pre/post filter scripts
 etc/unsubscribe-cgi/  RFC 8058 one-click CGI example
 ```
+
+## Maildir archive location
+
+mlisp's internal per-list archive (used by the `search`/`index`/`get`
+subscriber commands and by `mlisp-bugs`) follows the POSIX/
+freedesktop.org `$MAILDIR` convention also honored by smartlist,
+procmail, debbugs, and notmuch:
+
+```
+$MAILDIR set:    $MAILDIR/lists/<list-id>/        e.g. $MAILDIR/lists/mlisp-discuss/
+$MAILDIR unset:  $MLISP_HOME/state/maildir/<list-id>/
+```
+
+Set `$MAILDIR` to point mlisp's archive at an existing mail spool
+shared with other tools (notmuch indexing, mutt, debbugs). With no
+`$MAILDIR`, mlisp works zero-config under `$MLISP_HOME`.
+
+`$MAIL` (the mbox-format equivalent) is not used: mlisp only writes
+Maildir-format archives.
+
+This is separate from the per-list `set-option <list> maildir-path
+<path>` mechanism, which writes an *additional* explicit-path copy for
+external indexing regardless of `$MAILDIR`.
 
 ## Namespace model
 
@@ -169,13 +192,14 @@ Bundled examples in `etc/filters/`: SpamAssassin, ClamAV, Gemini archive.
 
 ## neural.sh integration (digest/report summarization)
 
-`neural` is a self-contained shell script built from the vendored
-`vendor/neural.sh` submodule. `make build-all` compiles and copies it
-to `bin/neural` alongside the mlisp binaries; `make install` installs
-it to `PREFIX/bin/`.
+`neural` is a self-contained shell script (bash + curl + jq + jo at
+runtime, no m4) compiled at build time from `etc/neural-mlisp.m4`
+using the macro DSL from the vendored `vendor/neural.sh` submodule
+(`config.m4`). `make build-all` builds it to `bin/neural` alongside
+the mlisp binaries; `make install` installs it to `PREFIX/bin/`.
 
 ```sh
-# First-time setup: install runtime deps (curl, jq, jo, m4)
+# First-time setup: install build/runtime deps (curl, jq, jo, m4)
 make deps
 
 # Build everything including neural
@@ -186,17 +210,13 @@ mlisp-admin bugs-report myproject \
     --summarize etc/filters/neural-summarize
 ```
 
-Environment variables for `etc/filters/neural-summarize`:
-
-```
-NEURAL_ENDPOINT   OpenAI-compatible endpoint URL
-                  Default: http://localhost:11434/v1/completions (Ollama)
-NEURAL_MODEL      Model name  Default: llama3.2
-OPENAI_API_KEY    API key (empty string is valid for Ollama)
-```
-
-Local Ollama is the recommended default — bug reports may contain
-reporter email addresses and should not leave the host.
+The model and endpoint are compiled into `bin/neural` at build time
+from `etc/neural-mlisp.m4` -- they are **not** runtime-configurable via
+environment variables. The default is local Ollama
+(`http://localhost:11434`), so bug reports -- which may contain
+reporter email addresses -- stay on-host. To use OpenAI or another
+OpenAI-compatible endpoint, edit `etc/neural-mlisp.m4` (see its
+comments for the `config.m4` macros) and run `make bin/neural` again.
 
 ## Key `set-option` keys
 
@@ -213,9 +233,9 @@ unsubscribe-url      https://...   (RFC 8058 one-click)
 archive-url          https://...   (List-Archive header)
 search-enabled       true|false
 advertised           true|false
-maildir-path         /path/to/$MAILDIR  (external archive for notmuch/mutt;
-                     separate from the internal state/maildir/ used by
-                     search/index/get)
+maildir-path         /path/to/dir  (explicit external archive copy for
+                     notmuch/mutt; independent of $MAILDIR -- see
+                     "Maildir archive location" below)
 pre-filter           /path/to/filter
 post-filter          /path/to/filter
 ```

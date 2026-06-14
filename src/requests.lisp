@@ -194,9 +194,10 @@
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
 (defun maildir-path (list-id)
-  "Return path to Maildir new/ directory for LIST-ID."
-  (merge-pathnames (format nil "state/maildir/~A/new/" list-id)
-                   (mlisp-home)))
+  "Return path to Maildir new/ directory for LIST-ID.
+   Under (maildir-root): $MAILDIR/lists/<list-id>/new/ if $MAILDIR is
+   set, else $MLISP_HOME/state/maildir/<list-id>/new/."
+  (merge-pathnames (format nil "~A/new/" list-id) (maildir-root)))
 
 (defun maildir-messages (list-id)
   "Return sorted list of message file pathnames in the Maildir archive."
