@@ -108,6 +108,9 @@ jobs:
     permissions:
       contents: write
 
+    env:
+      LISP: sbcl-bin
+
     steps:
       - uses: actions/checkout@v4
         with:
