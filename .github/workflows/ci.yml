@@ -34,7 +34,6 @@ jobs:
           asdf-system: mlisp
           qlfile-template: |
             ql fiveam
-            ql 40ants-doc
 
       - name: Run FiveAM unit tests (mlisp-suite + mime-suite, 78 specs)
         uses: 40ants/run-tests@v2
@@ -113,6 +112,7 @@ jobs:
         with:
           asdf-system: mlisp
           qlfile-template: |
+            dist ultralisp http://dist.ultralisp.org/
             ql fiveam
             ql 40ants-doc
 

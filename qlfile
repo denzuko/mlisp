@@ -1,10 +1,10 @@
 ; qlfile -- qlot dependency manifest for mlisp
 ; Run: qlot install  (creates qlfile.lock + .qlot/ local environment)
 ; See: https://github.com/fukamachi/qlot
+;
+; Primary BDD/unit testing framework (used by 'make test-unit' / CI
+; unit-tests job). The 'docs' CI job uses its own qlfile-template
+; (inline in ci.yml) with an additional Ultralisp dist source for
+; 40ants-doc, which is not in the standard Quicklisp dist.
 
-; Primary BDD/unit testing framework
 ql fiveam
-
-; Documentation generation (40ANTS-DOC-FULL: the "/locatives/asdf-system"
-; variant, pulling in alexandria/cl-change-case/cl-ppcre/cl-unicode/closer-mop)
-ql 40ants-doc
