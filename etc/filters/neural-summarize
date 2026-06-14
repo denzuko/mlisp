@@ -1,24 +1,29 @@
 #!/bin/sh
-# etc/filters/neural-summarize — wrapper for `mlisp-admin bugs-report --summarize`
+# etc/filters/neural-summarize — mlisp-admin bugs-report --summarize wrapper
 #
-# Pipes a generated bug report through neural.sh
-# (https://git.sr.ht/~denzuko/neural.sh) for a one-paragraph summary,
-# using a config.m4 that routes to a local Ollama model by default --
-# bug report contents may reference reporter email addresses, so local
-# inference keeps that data on-host (see #100's design constraints).
+# Uses the neural binary built from vendor/neural.sh (via `make build-all`
+# or `make -C vendor/neural.sh build` + copy to bin/). The built binary
+# is a self-contained shell script requiring only: bash, curl, jq, jo.
 #
-# Install:
-#   mlisp-admin bugs-report <pkg> --summarize /path/to/filters/neural-summarize
+# Wire up:
+#   mlisp-admin bugs-report <pkg> \
+#       --summarize /path/to/etc/filters/neural-summarize
 #
-# Configuration (environment or edit below):
-#   NEURAL_CONFIG — path to a neural.sh config.m4 (model/endpoint routing)
+# ENVIRONMENT
+#   NEURAL_ENDPOINT — OpenAI-compatible base URL
+#                     Default: http://localhost:11434/v1/completions (Ollama)
+#   NEURAL_MODEL    — model name  Default: llama3.2
+#   OPENAI_API_KEY  — API key (empty string is valid for Ollama)
 #
-# Contract: reads the report on stdin, writes a summary to stdout.
-# Non-zero exit -> mlisp-admin prints a warning and still shows the
-# report without a Summary section (see BUG-32 in
-# test/bats/test_mlisp_bugs.bats).
+# Local Ollama is the recommended default: bug reports may contain
+# reporter email addresses and should not leave the host.
 
-NEURAL_CONFIG="${NEURAL_CONFIG:-/etc/mlisp/neural-summarize.m4}"
+: "${NEURAL_ENDPOINT:=http://localhost:11434/v1/completions}"
+: "${NEURAL_MODEL:=llama3.2}"
 
-exec neural.sh --config "$NEURAL_CONFIG" \
-  --prompt "Summarize this bug tracker report in one short paragraph, highlighting any critical/security-severity items first:"
+prompt="Summarize this bug tracker report in one short paragraph. \
+Highlight any critical or security-severity items first. Be concise:"
+
+report=$(cat)
+
+printf '%s\n\n%s' "$prompt" "$report" | neural -

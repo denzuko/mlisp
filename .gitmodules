@@ -1,0 +1,3 @@
+[submodule "vendor/neural.sh"]
+	path = vendor/neural.sh
+	url = https://git.sr.ht/~denzuko/neural.sh

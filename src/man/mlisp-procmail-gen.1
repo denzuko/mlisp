@@ -1,0 +1,108 @@
+.TH MLISP\-PROCMAIL\-GEN 1 "June 2026" "mlisp 0.8" "User Commands"
+.SH NAME
+mlisp\-procmail\-gen \- s\-expr DSL compiler for procmailrc recipes
+.SH SYNOPSIS
+.B mlisp\-procmail\-gen
+.RB [ \-\-output
+.IR path ]
+.RB [ \-\-dry\-run ]
+.I recipe\-file.lisp
+.SH DESCRIPTION
+.B mlisp\-procmail\-gen
+reads a Lisp source file containing
+.B :recipe
+or
+.B :recipe\-set
+forms and emits procmail recipe blocks.
+.PP
+With
+.B \-\-output
+it appends to the target file idempotently, skipping any recipe whose
+.B :marker
+comment is already present (safe to run repeatedly).
+.PP
+Without
+.B \-\-output
+it prints to stdout, suitable for piping or redirection.
+.SH OPTIONS
+.TP
+.B \-\-output \fIpath\fR
+Append generated recipes to \fIpath\fR.  Idempotent via the
+\fB# <marker>\fR comment line at the top of each recipe block.
+.TP
+.B \-\-dry\-run
+With \fB\-\-output\fR: show what would be appended without writing.
+Has no effect without \fB\-\-output\fR.
+.TP
+.B \-\-help
+Print usage and exit 0.
+.SH RECIPE DSL
+A recipe is a plist beginning with
+.BR :recipe :
+.PP
+.RS
+.nf
+(:recipe
+  :marker  "mlisp: myproject\-discuss"
+  :guards  ("!^FROM_DAEMON" "!^FROM_MAILER"
+            "!^Precedence: (bulk|junk|list)")
+  :match   "^^TO_myproject\-discuss@lists.example.com"
+  :pipe    "/usr/local/bin/mlisp \-\-home /etc/mlisp myproject\-discuss")
+.fi
+.RE
+.PP
+A
+.B :recipe\-set
+groups multiple recipes printed together:
+.PP
+.RS
+.nf
+(:recipe\-set
+  (:recipe :marker "mlisp: myproject\-discuss" ...)
+  (:recipe :marker "mlisp: myproject\-request" ...))
+.fi
+.RE
+.PP
+Fields:
+.TP
+.B :marker
+String placed as a comment on the first line of the recipe block.
+Used for idempotency checking when
+.B \-\-output
+is given.
+.TP
+.B :guards
+List of procmail condition lines prefixed with
+.BR * .
+.TP
+.B :match
+Procmail condition line (prefixed with
+.BR * ).
+.TP
+.B :pipe
+Shell command passed to procmail's
+.B |
+action.
+.SH EXAMPLES
+.PP
+Generate and append all list recipes, then preview without writing:
+.PP
+.RS
+.nf
+mlisp\-procmail\-gen \-\-output ~/.procmailrc recipes.lisp
+mlisp\-procmail\-gen \-\-dry\-run recipes.lisp
+.fi
+.RE
+.PP
+Use
+.B mlisp\-admin install\-procmail
+as an alternative for single\-list procmailrc generation without a
+separate recipe file.
+.SH SEE ALSO
+.BR mlisp (1),
+.BR mlisp\-admin (1),
+.BR procmailrc (5)
+.SH AUTHORS
+Dwight Spencer <dwight@dapla.net>
+.br
+Da Planet Security \(em https://dapla.net/
