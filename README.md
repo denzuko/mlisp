@@ -188,7 +188,11 @@ mlisp-admin set-option mylist post-filter /path/to/filter
 mlisp-admin set-option mylist pre-filter "/etc/mlisp/filters/spam /etc/mlisp/filters/virus"
 ```
 
-Bundled examples in `etc/filters/`: SpamAssassin, ClamAV, Gemini archive.
+Bundled examples in `etc/filters/`: SpamAssassin, ClamAV, Gemini
+archive, and `neural-moderate` (#100 use case 3: AI moderation
+annotation via `neural.sh`, advisory `X-Mlisp-AI-Triage` header, exits
+0 -- combine with `set-option <list> non-member-action hold` for an
+actual hold decision).
 
 ## neural.sh integration (digest/report summarization)
 

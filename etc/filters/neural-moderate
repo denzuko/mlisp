@@ -1,0 +1,67 @@
+#!/bin/sh
+# etc/filters/neural-moderate — mlisp pre-filter: AI moderation annotation
+#
+# #100 use case 3 (moderation pre-screen): annotate a message with a
+# spam-likelihood / on-topic note from neural.sh, for moderators
+# reviewing the hold queue. ADVISORY ONLY -- this filter always exits 0
+# (pass) and only adds a header; it does NOT make hold/reject decisions
+# itself. Combine with the list's own moderation policy
+# (`mlisp-admin set-option <list-id> non-member-action hold`, or
+# `member_posting_only`) to actually route messages to the hold queue --
+# that policy's hold path will then show this filter's annotation
+# alongside the held message.
+#
+# NOTE: a pre-filter that itself exits 2 (hold) does NOT get its
+# stdout used for the held copy -- mlisp's hold-message stores the
+# ORIGINAL pre-filter message, so an annotating filter that also wants
+# to force a hold cannot do both in one step today. Exiting 0 (this
+# filter) and letting a separate moderation-policy filter or
+# `non-member-action hold` make the hold decision is the only way to
+# get both the annotation AND a hold with current filter semantics.
+#
+# This is a pure plugin filter -- no mlisp code changes. Per #100
+# feedback: "Should be optional and not a code change to mlisp since we
+# already can add filter programs as plugins."
+#
+# Install (per-list, opt-in), typically chained BEFORE a
+# reject/discard filter so its annotation is visible on messages that
+# proceed to moderation:
+#   mlisp-admin set-option <list-id> pre-filter \
+#       "/path/to/filters/neural-moderate /path/to/filters/spamassassin"
+#
+# Requirements: the `neural` binary (built by `make build-all`, see
+# README's "neural.sh integration" section -- model/endpoint are
+# whatever vendor/neural.sh was built with).
+#
+# Filter contract: stdin = raw RFC 5322 message, stdout = modified
+# message, exit 0 = continue with stdout as the new message.
+
+LIST_DESCRIPTION="${MLISP_LIST_DESCRIPTION:-}"
+
+message=$(cat)
+
+prompt="You are screening a message for a mailing list${LIST_DESCRIPTION:+ described as: $LIST_DESCRIPTION}. \
+In one short line, note whether this looks like spam, off-topic, or \
+fine, and why. Be concise:"
+
+# Extract just the body (after the first blank line) for the prompt,
+# to avoid sending the full header block to the model.
+body=$(printf '%s\n' "$message" | sed '1,/^[[:space:]]*$/d')
+
+annotation=$(printf '%s\n\n%s' "$prompt" "$body" | neural - 2>/dev/null)
+annotation=$(printf '%s' "$annotation" | tr -d '\r\n')
+
+if [ -n "$annotation" ]; then
+    # Insert an X-Mlisp-AI-Triage header right after the first header
+    # line.
+    printf '%s\n' "$message" | awk -v ann="$annotation" '
+        NR == 1 { print; print "X-Mlisp-AI-Triage: " ann; next }
+        { print }
+    '
+else
+    # neural produced no output (e.g. endpoint unreachable) -- pass the
+    # message through unannotated.
+    printf '%s\n' "$message"
+fi
+
+exit 0
