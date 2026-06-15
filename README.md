@@ -283,6 +283,18 @@ man mlisp-intro         tutorial + migration from smartlist/Mailman/LISTSERV
 man mlisp-distrib       file distribution
 ```
 
+A narrative HTML overview (entry point + links to the manpages above)
+is built from `docs/index.lisp` via the separate `mlisp-docs` ASDF
+system (kept out of `mlisp.asd`'s dependencies -- see "Requirements"):
+
+```sh
+sbcl --eval '(ql:quickload :40ants-doc-full)' \
+     --eval '(asdf:load-system :mlisp-docs)' \
+     --eval '(docs-builder:build :mlisp-docs)'
+```
+
+CI builds and publishes this on every push to `develop`/`main`.
+
 ## Requirements
 
 - SBCL 2.x with Quicklisp
