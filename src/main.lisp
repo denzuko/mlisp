@@ -123,9 +123,7 @@
                (multiple-value-bind (new-headers new-body exit-code)
                    (invoke-filter-chain filters headers body-lines)
                  (case exit-code
-                   (0 (setf headers new-headers body-lines new-body)
-                      (format *error-output* "[DBG] Subject after filter: ~A~%"
-                              (mlisp::header-value headers "Subject")))
+                   (0 (setf headers new-headers body-lines new-body))
                    (1 (audit-append (list :event :filter-rejected :list list-id))
                       (return-from process-message 1))
                    (2 (hold-message list-id headers body-lines)

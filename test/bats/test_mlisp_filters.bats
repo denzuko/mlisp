@@ -75,3 +75,40 @@ teardown() { rm -rf "${SCRATCH}"; }
     run bash -c "'${MLISP_BIN}' mlisp-discuss < '${SCRATCH}/var/msg.eml'"
     [ "$status" -ne 0 ]
 }
+
+# ─── #100 use case 3: neural-moderate annotation filter ──────────────────────
+
+@test "FLT-5 neural-moderate adds X-Mlisp-AI-Triage header and passes through (exit 0)" {
+    # Stub 'neural' on PATH: deterministic annotation, no real LLM needed.
+    printf '#!/bin/sh\ncat > /dev/null\necho "looks fine, on-topic"\n' \
+      > "${SCRATCH}/bin/neural"
+    chmod +x "${SCRATCH}/bin/neural"
+
+    "${ADMIN_BIN}" set-option mlisp-discuss pre-filter \
+      "${MLISP_HOME_ORIG}/etc/filters/neural-moderate"
+
+    PATH="${SCRATCH}/bin:${PATH}" \
+      "${MLISP_BIN}" mlisp-discuss <<< $'From: dwight@example.com\r\nSubject: test\r\n\r\nbody\r' \
+      2>/dev/null
+
+    grep -qi "X-Mlisp-AI-Triage: looks fine, on-topic" "${SCRATCH}/var/outbound.eml"
+}
+
+@test "FLT-6 neural-moderate passes through unannotated when neural produces no output" {
+    # Stub 'neural' on PATH: simulates neural.sh's curl|while|xargs
+    # pipeline always exiting 0 with empty output (e.g. unreachable
+    # endpoint -- see BUG-33 in test_mlisp_bugs.bats for the same
+    # upstream behavior).
+    printf '#!/bin/sh\ncat > /dev/null\nexit 0\n' > "${SCRATCH}/bin/neural"
+    chmod +x "${SCRATCH}/bin/neural"
+
+    "${ADMIN_BIN}" set-option mlisp-discuss pre-filter \
+      "${MLISP_HOME_ORIG}/etc/filters/neural-moderate"
+
+    PATH="${SCRATCH}/bin:${PATH}" \
+      "${MLISP_BIN}" mlisp-discuss <<< $'From: dwight@example.com\r\nSubject: test\r\n\r\nbody\r' \
+      2>/dev/null
+
+    ! grep -qi "X-Mlisp-AI-Triage" "${SCRATCH}/var/outbound.eml"
+    grep -qi "MLISP_MSG_END" "${SCRATCH}/var/outbound.eml"
+}
