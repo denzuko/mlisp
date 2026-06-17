@@ -2,7 +2,12 @@
 ; Run: qlot install
 ; See: https://github.com/fukamachi/qlot
 
-; XML parsing for SOAP envelope (namespace-aware, no external process)
+; RFC 2045 MIME / RFC 5322 message parsing
+; parse-mime: string/stream -> MIME object (content-type, content-subtype, content)
+; parse-headers: stream -> alist of (:KEYWORD . "value") pairs
+ql cl-mime
+
+; XML parsing for SOAP 1.2 envelope (namespace-aware, no external process)
 ql xmls
 
 ; Primary BDD/unit testing framework

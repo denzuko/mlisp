@@ -1,41 +1,52 @@
 ;;;; src/main.lisp -- main entry point for soap-service
 ;;;;
-;;;; Batch processes all unread messages in $MAILDIR/new/:
-;;;;   1. Skip messages with X-Loop: matching our service address
-;;;;   2. Skip messages with non-SOAP Content-Type
-;;;;   3. Parse the SOAP envelope
-;;;;   4. Dispatch the operation
-;;;;   5. Discover reply address (list vs direct)
-;;;;   6. Send reply with X-Loop: set
-;;;;   7. Mark message read (new/ -> cur/)
+;;;; Batch processes all unread messages in $MAILDIR/new/.
+;;;; Uses cl-mime (mime:parse-mime, mime:parse-headers) for message parsing.
 
 (in-package #:soap-service)
+
+(defun getenv (name &optional default)
+  (or (sb-ext:posix-getenv name) default))
+
+(defun service-address ()
+  (getenv "SOAP_SERVICE_ADDRESS" "soap-calc@example.com"))
 
 (defun process-one (pathname service-addr)
   "Process a single Maildir message. Returns :processed, :skipped, or :error."
   (handler-case
       (let* ((raw     (slurp-file pathname))
-             (headers (nth-value 0 (parse-message raw)))
-             (body    (nth-value 1 (parse-message raw))))
-        ;; Guard: skip our own replies
+             ;; cl-mime parses headers into (:KEYWORD . "value") alist
+             (headers (mime:parse-headers (make-string-input-stream raw)))
+             ;; cl-mime parses the whole message into a MIME object
+             (parsed  (mime:parse-mime raw))
+             (body    (or (mime:content parsed) "")))
+
+        ;; Guard: skip our own replies (X-Loop: matches service address)
         (when (x-loop-p headers service-addr)
           (mark-read pathname)
           (return-from process-one :skipped))
-        ;; Guard: skip non-SOAP content-types (but be lenient if absent)
-        (let ((ct (header "Content-Type" headers)))
-          (when (and ct (not (soap-content-type-p ct)))
-            (mark-read pathname)
-            (return-from process-one :skipped)))
-        (let ((from       (header "From"       headers))
-              (subject    (or (header "Subject" headers) "SOAP Response"))
-              (message-id (header "Message-ID" headers)))
+
+        ;; Guard: skip non-SOAP content-types (lenient if absent)
+        (when parsed
+          (let ((ct  (mime:content-type    parsed))
+                (cst (mime:content-subtype parsed)))
+            (when (and ct cst (not (soap-content-type-p ct cst)))
+              (mark-read pathname)
+              (return-from process-one :skipped))))
+
+        (let ((from       (cdr (assoc :from       headers)))
+              (subject    (or (cdr (assoc :subject    headers)) "SOAP Response"))
+              (message-id (cdr (assoc :message-id headers))))
+
           (unless from
             (mark-read pathname)
             (return-from process-one :skipped))
-          ;; Discover reply address
+
+          ;; Discover reply path from RFC 2369/2919 list headers
           (multiple-value-bind (reply-to mode)
               (reply-to-address headers)
-            ;; Parse and dispatch
+
+            ;; Parse and dispatch the SOAP envelope
             (handler-case
                 (let* ((op       (parse-soap-envelope (trim body)))
                        (body-str (nth-value 0 (dispatch-soap op)))
@@ -43,13 +54,13 @@
                   (send-reply reply-to service-addr subject
                               message-id envelope mode))
               (error (e)
-                ;; Unparseable envelope -> reply with soap:Fault
                 (let ((fault-env
                         (build-soap-envelope
                          (build-fault "Sender" "Bad request"
                                        (format nil "~A" e)))))
                   (send-reply (or reply-to from) service-addr subject
                               message-id fault-env :direct)))))
+
           (mark-read pathname)
           :processed))
     (error (e)

@@ -5,6 +5,9 @@
 
 (in-package #:soap-service)
 
+(defun trim (str)
+  (string-trim '(#\Space #\Tab #\Return #\Newline) (or str "")))
+
 ;;; ── Constants ────────────────────────────────────────────────────────────
 
 (defconstant +soap-ns+
@@ -16,15 +19,16 @@
 (defconstant +soap-media-type+
   "application/soap+xml")               ; RFC 3902
 
-;;; ── Content-type check ───────────────────────────────────────────────────
+;;; ── Content-type check (RFC 3902) ───────────────────────────────────────
 
-(defun soap-content-type-p (content-type)
-  "Return T if CONTENT-TYPE is application/soap+xml (RFC 3902).
-   Nil content-type returns nil. Absent Content-Type is handled
-   leniently by the caller (try to parse anyway)."
+(defun soap-content-type-p (content-type content-subtype)
+  "Return T if content-type/subtype is application/soap+xml (RFC 3902).
+   Takes the two values from mime:content-type and mime:content-subtype
+   separately, matching how cl-mime exposes them."
   (and content-type
-       (let ((ct (string-downcase (trim content-type))))
-         (not (null (search "soap+xml" ct))))))
+       content-subtype
+       (string-equal content-type    "application")
+       (string-equal content-subtype "soap+xml")))
 
 ;;; ── xmls helpers ─────────────────────────────────────────────────────────
 
