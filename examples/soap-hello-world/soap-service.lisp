@@ -1,498 +1,492 @@
 ;;;; examples/soap-hello-world/soap-service.lisp
 ;;;;
-;;;; Standalone email-SOAP Hello World service.
+;;;; W3C SOAP 1.2 Email Binding (NOTE 3 July 2002) implementation.
 ;;;;
-;;;; Reads a raw RFC 5322 message from stdin whose body is a SOAP
-;;;; envelope. Parses the envelope, dispatches the operation, and
-;;;; replies to the original From: address with a SOAP response
-;;;; envelope via sendmail(8).
+;;;; Batch processes all unread messages from $MAILDIR/new/, dispatches
+;;;; SOAP operations in-process, replies per smart address discovery:
 ;;;;
-;;;; Email is the ONLY transport. No HTTP. No external SOAP endpoint.
-;;;; The service implements the operations itself, in-process.
+;;;;   - List headers present (List-Id:, List-Post:, Mailing-List:,
+;;;;     Precedence: list) -> reply to LIST (1:many, subscribers receive
+;;;;     the SOAP response; further services on the list can consume it)
+;;;;   - No list headers -> reply direct to From: (1:1, private exchange)
 ;;;;
-;;;; ── Mailing list setup (mlisp) ──────────────────────────────────
+;;;; Per W3C spec:
+;;;;   Content-Type: application/soap+xml (RFC 3902)
+;;;;   In-Reply-To: <original Message-ID> (correlation)
+;;;;   X-Loop: <service-address> set on all outbound (loop guard)
+;;;;   Inbound messages with X-Loop: matching service address are skipped
 ;;;;
-;;;;   mlisp-admin add-namespace soap soap@example.com
-;;;;   mlisp-admin set-option soap-calc drop-address soap-calc@example.com
+;;;; Marks each processed message read by moving new/ -> cur/ (Maildir).
 ;;;;
-;;;; Then add to .procmailrc (after mlisp's own recipes):
+;;;; Designed to run from cron every 5 minutes:
+;;;;   */5 * * * * /usr/local/bin/soap-service
 ;;;;
-;;;;   :0
-;;;;   * ^To:.*soap-calc@example\.com
-;;;;   | sbcl --script /path/to/examples/soap-hello-world/soap-service.lisp
+;;;; fetchmail pulls unread messages into $MAILDIR/new/ before this runs.
 ;;;;
-;;;; ── Supported operations ─────────────────────────────────────────
+;;;; Build:
+;;;;   sbcl --load build.lisp
 ;;;;
-;;;;   All use namespace http://example.com/soap/calculator/
+;;;; Requirements: SBCL, Quicklisp (xmls), sendmail(8)
 ;;;;
-;;;;   Add(intA, intB)       -> AddResponse(AddResult)
-;;;;   Subtract(intA, intB)  -> SubtractResponse(SubtractResult)
-;;;;   Multiply(intA, intB)  -> MultiplyResponse(MultiplyResult)
-;;;;   Divide(intA, intB)    -> DivideResponse(DivideResult)
-;;;;                            (fault on division by zero)
-;;;;
-;;;; ── Example request email ────────────────────────────────────────
-;;;;
-;;;;   From: client@example.com
-;;;;   To:   soap-calc@example.com
-;;;;   Subject: SOAP Calculator
-;;;;   Content-Type: text/xml; charset=utf-8
-;;;;
-;;;;   <?xml version="1.0" encoding="utf-8"?>
-;;;;   <soap:Envelope
-;;;;       xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
-;;;;       xmlns:cal="http://example.com/soap/calculator/">
-;;;;     <soap:Body>
-;;;;       <cal:Add>
-;;;;         <cal:intA>3</cal:intA>
-;;;;         <cal:intB>4</cal:intB>
-;;;;       </cal:Add>
-;;;;     </soap:Body>
-;;;;   </soap:Envelope>
-;;;;
-;;;; ── Example response email ───────────────────────────────────────
-;;;;
-;;;;   From: soap-calc@example.com
-;;;;   To:   client@example.com
-;;;;   Subject: Re: SOAP Calculator
-;;;;   Content-Type: text/xml; charset=utf-8
-;;;;
-;;;;   <?xml version="1.0" encoding="utf-8"?>
-;;;;   <soap:Envelope
-;;;;       xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
-;;;;       xmlns:cal="http://example.com/soap/calculator/">
-;;;;     <soap:Body>
-;;;;       <cal:AddResponse>
-;;;;         <cal:AddResult>7</cal:AddResult>
-;;;;       </cal:AddResponse>
-;;;;     </soap:Body>
-;;;;   </soap:Envelope>
-;;;;
-;;;; ── Requirements ─────────────────────────────────────────────────
-;;;;   SBCL, sendmail(8) or compatible.
-;;;;   No external Quicklisp packages -- pure SBCL + built-ins only.
-;;;;   XML parsing is done with a minimal hand-written recursive
-;;;;   descent parser sufficient for well-formed SOAP 1.1 envelopes.
-;;;;   For production use, replace with xmls or cxml via Quicklisp.
+;;;; Environment:
+;;;;   MAILDIR              Maildir root (default: ~/Maildir)
+;;;;   SOAP_SERVICE_ADDRESS Service email address for From: and X-Loop:
+;;;;                        (default: soap-calc@example.com)
+;;;;   MLISP_SENDMAIL       sendmail(8) path (default: /usr/sbin/sendmail)
 
-;;; ── Utilities ────────────────────────────────────────────────────────────
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (dolist (path (list
+                 (merge-pathnames "quicklisp/setup.lisp" (user-homedir-pathname))
+                 #p"/home/claude/quicklisp/setup.lisp"
+                 #p"/root/quicklisp/setup.lisp"))
+    (when (probe-file path)
+      (load path)
+      (return)))
+  (funcall (find-symbol "QUICKLOAD" (find-package "QL")) :xmls :silent t))
 
-(defun getenv (name &optional default)
-  (or (sb-ext:posix-getenv name) default))
+(defpackage #:soap-service
+  (:use #:cl #:xmls))
 
-(defun string-trim* (str)
-  (string-trim '(#\Space #\Tab #\Newline #\Return) str))
+(in-package #:soap-service)
 
-(defun string-starts-with (prefix str)
-  (and (>= (length str) (length prefix))
-       (string= prefix str :end2 (length prefix))))
+;;; ── Constants ────────────────────────────────────────────────────────────
 
-(defun string-ends-with (suffix str)
-  (and (>= (length str) (length suffix))
-       (string= suffix str :start2 (- (length str) (length suffix)))))
-
-;;; ── Minimal RFC 5322 parser ──────────────────────────────────────────────
-
-(defun parse-email (raw)
-  "Parse RAW string into (values headers body-string).
-   Headers is an alist of (name . value) string pairs.
-   Body is everything after the first blank line."
-  (let* ((lines (split-lines raw))
-         (headers '())
-         (body-start 0)
-         (in-body nil))
-    (loop for line in lines
-          for i from 0
-          until in-body
-          do (cond
-               ((zerop (length (string-trim* line)))
-                (setf in-body t body-start (1+ i)))
-               ((and (> (length line) 0)
-                     (member (char line 0) '(#\Space #\Tab)))
-                ;; Folded header continuation
-                (when headers
-                  (setf (cdar headers)
-                        (concatenate 'string (cdar headers) " "
-                                     (string-trim* line)))))
-               (t
-                (let ((colon (position #\: line)))
-                  (when colon
-                    (push (cons (string-trim* (subseq line 0 colon))
-                                (string-trim* (subseq line (1+ colon))))
-                          headers))))))
-    (values (nreverse headers)
-            (join-lines (nthcdr body-start lines)))))
-
-(defun split-lines (str)
-  "Split STR on LF or CRLF, returning a list of line strings."
-  (let ((lines '()) (start 0))
-    (loop for i from 0 below (length str)
-          do (when (char= (char str i) #\Newline)
-               (let* ((end (if (and (> i 0) (char= (char str (1- i)) #\Return))
-                               (1- i) i))
-                      (line (subseq str start end)))
-                 (push line lines)
-                 (setf start (1+ i)))))
-    (when (< start (length str))
-      (push (subseq str start) lines))
-    (nreverse lines)))
-
-(defun join-lines (lines)
-  (with-output-to-string (s)
-    (dolist (l lines)
-      (write-string l s)
-      (write-char #\Newline s))))
-
-(defun header (name headers)
-  "Case-insensitive header lookup."
-  (cdr (assoc name headers :test #'string-equal)))
-
-;;; ── Minimal SOAP XML parser ──────────────────────────────────────────────
-;;; Parses well-formed SOAP 1.1 envelopes into a simple nested list:
-;;;   (:element "local-name" "ns-uri" ((:attr "name" "val") ...) (children...))
-;;;   (:text "content")
-
-(defun parse-xml (str)
-  "Parse a simple XML string into a nested s-expr tree.
-   Not a full XML parser -- handles typical SOAP envelopes only:
-   no CDATA, no DTD, no processing instructions beyond <?xml ...?>.
-   Sufficient for well-formed SOAP 1.1 with namespace prefixes."
-  (let ((pos 0)
-        (len (length str)))
-    (labels
-        ((skip-whitespace ()
-           (loop while (and (< pos len)
-                            (member (char str pos) '(#\Space #\Tab #\Newline #\Return)))
-                 do (incf pos)))
-         (read-until (ch)
-           (let ((start pos))
-             (loop until (or (>= pos len) (char= (char str pos) ch))
-                   do (incf pos))
-             (subseq str start pos)))
-         (read-name ()
-           (let ((start pos))
-             (loop while (and (< pos len)
-                              (let ((c (char str pos)))
-                                (or (alphanumericp c)
-                                    (member c '(#\- #\_ #\. #\: #\/)))))
-                   do (incf pos))
-             (subseq str start pos)))
-         (read-attribute-value ()
-           (let ((q (char str pos)))
-             (incf pos) ; opening quote
-             (let ((val (read-until q)))
-               (incf pos) ; closing quote
-               val)))
-         (read-attributes ()
-           (let ((attrs '()))
-             (loop
-               (skip-whitespace)
-               (when (or (>= pos len)
-                         (member (char str pos) '(#\> #\/)))
-                 (return attrs))
-               (let ((name (read-name)))
-                 (skip-whitespace)
-                 (if (and (< pos len) (char= (char str pos) #\=))
-                     (progn
-                       (incf pos)
-                       (skip-whitespace)
-                       (let ((val (read-attribute-value)))
-                         (push (list :attr name val) attrs)))
-                     (push (list :attr name "") attrs))))
-             (nreverse attrs)))
-         (read-element ()
-           (skip-whitespace)
-           (when (>= pos len) (return-from read-element nil))
-           ;; Skip <?...?> and <!--...-->
-           (when (and (char= (char str pos) #\<)
-                      (< (1+ pos) len))
-             (cond
-               ((and (char= (char str (1+ pos)) #\?)
-                     (string-starts-with "<?" (subseq str pos)))
-                (loop until (and (< pos (- len 1))
-                                 (char= (char str pos) #\?)
-                                 (char= (char str (1+ pos)) #\>))
-                      do (incf pos))
-                (incf pos 2)
-                (return-from read-element (read-element)))
-               ((string-starts-with "<!--" (subseq str pos))
-                (loop until (string-starts-with "-->" (subseq str pos))
-                      do (incf pos))
-                (incf pos 3)
-                (return-from read-element (read-element)))))
-           (cond
-             ;; Opening tag
-             ((and (< pos len) (char= (char str pos) #\<)
-                   (< (1+ pos) len)
-                   (not (char= (char str (1+ pos)) #\/)))
-              (incf pos) ; skip <
-              (let* ((raw-name (read-name))
-                     (prefix   (let ((c (position #\: raw-name)))
-                                 (if c (subseq raw-name 0 c) nil)))
-                     (local    (if prefix
-                                   (subseq raw-name (1+ (length prefix)))
-                                   raw-name))
-                     (attrs    (read-attributes)))
-                ;; Resolve namespace URI from xmlns:prefix attribute
-                (let* ((ns-uri (if prefix
-                                   (let ((a (find-if
-                                             (lambda (a)
-                                               (string= (cadr a)
-                                                        (format nil "xmlns:~A" prefix)))
-                                             attrs)))
-                                     (if a (caddr a) ""))
-                                   ""))
-                       (children '()))
-                  (skip-whitespace)
-                  (cond
-                    ;; Self-closing tag
-                    ((and (< pos len) (char= (char str pos) #\/))
-                     (incf pos 2) ; skip />
-                     (list :element local ns-uri attrs nil))
-                    (t
-                     (incf pos) ; skip >
-                     ;; Read children until closing tag
-                     (loop
-                       (skip-whitespace)
-                       (when (>= pos len) (return))
-                       (when (and (char= (char str pos) #\<)
-                                  (< (1+ pos) len)
-                                  (char= (char str (1+ pos)) #\/))
-                         (return))
-                       (let ((child (read-element)))
-                         (when child (push child children))))
-                     ;; Skip closing tag
-                     (when (and (< pos len) (char= (char str pos) #\<))
-                       (loop until (or (>= pos len) (char= (char str pos) #\>))
-                             do (incf pos))
-                       (incf pos))
-                     (list :element local ns-uri attrs
-                           (nreverse children)))))))
-             ;; Text node
-             (t
-              (let ((text (string-trim* (read-until #\<))))
-                (when (> (length text) 0)
-                  (list :text text)))))))
-      (read-element))))
-
-(defun xml-local (node) (cadr node))
-(defun xml-ns    (node) (caddr node))
-(defun xml-attrs (node) (cadddr node))
-(defun xml-children (node)
-  (when (and (listp node) (eq (car node) :element))
-    (fifth node)))
-
-(defun xml-find-child (local-name node)
-  "Find first child element with matching local name (case-insensitive)."
-  (find-if (lambda (c)
-             (and (listp c)
-                  (eq (car c) :element)
-                  (string-equal local-name (xml-local c))))
-           (xml-children node)))
-
-(defun xml-text (node)
-  "Return the concatenated text content of a node's children."
-  (with-output-to-string (s)
-    (dolist (c (xml-children node))
-      (when (and (listp c) (eq (car c) :text))
-        (write-string (cadr c) s)))))
-
-(defun xml-attr (name node)
-  "Find an attribute value by name."
-  (let ((a (find-if (lambda (a) (string-equal name (cadr a)))
-                    (xml-attrs node))))
-    (when a (caddr a))))
-
-;;; ── SOAP parsing ─────────────────────────────────────────────────────────
-
-(defparameter *soap-ns*
+(defparameter *soap-envelope-ns*
   "http://schemas.xmlsoap.org/soap/envelope/")
+
+(defparameter *soap-encoding-ns*
+  "http://schemas.xmlsoap.org/soap/encoding/")
 
 (defparameter *calc-ns*
   "http://example.com/soap/calculator/")
 
-(defun soap-body (envelope)
-  "Extract the soap:Body element from a parsed envelope."
-  (xml-find-child "Body" envelope))
+(defparameter *soap-media-type*
+  "application/soap+xml")                  ; RFC 3902
 
-(defun soap-operation (body)
-  "Return the first child element of soap:Body -- the operation element."
-  (find-if (lambda (c)
-             (and (listp c) (eq (car c) :element)))
-           (xml-children body)))
+;;; ── Environment helpers ───────────────────────────────────────────────────
 
-(defun soap-param (name op)
-  "Extract a named parameter's text value from the operation element."
-  (let ((child (xml-find-child name op)))
+(defun getenv (name &optional default)
+  (or (sb-ext:posix-getenv name) default))
+
+(defun maildir-root ()
+  (getenv "MAILDIR"
+          (namestring (merge-pathnames "Maildir/"
+                                       (user-homedir-pathname)))))
+
+(defun service-address ()
+  (getenv "SOAP_SERVICE_ADDRESS" "soap-calc@example.com"))
+
+(defun sendmail-path ()
+  (getenv "MLISP_SENDMAIL" "/usr/sbin/sendmail"))
+
+;;; ── RFC 5322 message parser ──────────────────────────────────────────────
+
+(defun split-by-newline (str)
+  (let ((lines '()) (start 0))
+    (loop for i from 0 below (length str) do
+      (when (char= (char str i) #\Newline)
+        (let ((end (if (and (> i 0) (char= (char str (1- i)) #\Return))
+                       (1- i) i)))
+          (push (subseq str start end) lines)
+          (setf start (1+ i)))))
+    (when (< start (length str))
+      (push (subseq str start) lines))
+    (nreverse lines)))
+
+(defun trim (str)
+  (string-trim '(#\Space #\Tab #\Return #\Newline) str))
+
+(defun parse-message (raw)
+  "Parse RFC 5322 message into (values headers body).
+   Headers is an alist (name . value). Body is the string after
+   the first blank line. Handles folded headers (RFC 5322 §2.2.3)."
+  (let ((lines (split-by-newline raw))
+        (headers '())
+        (body-lines '())
+        (in-body nil))
+    (dolist (line lines)
+      (cond
+        (in-body
+         (push line body-lines))
+        ((zerop (length (trim line)))
+         (setf in-body t))
+        ;; Folded header continuation (starts with WSP)
+        ((and (> (length line) 0)
+              (member (char line 0) '(#\Space #\Tab)))
+         (when headers
+           (setf (cdar headers)
+                 (concatenate 'string (cdar headers) " " (trim line)))))
+        (t
+         (let ((colon (position #\: line)))
+           (when colon
+             (push (cons (trim (subseq line 0 colon))
+                         (trim (subseq line (1+ colon))))
+                   headers))))))
+    (values (nreverse headers)
+            (with-output-to-string (s)
+              (dolist (l (nreverse body-lines))
+                (write-string l s)
+                (write-char #\Newline s))))))
+
+(defun header (name headers)
+  "Case-insensitive header lookup. Returns value string or nil."
+  (cdr (assoc name headers :test #'string-equal)))
+
+;;; ── Loop guard ───────────────────────────────────────────────────────────
+
+(defun x-loop-p (headers)
+  "Return T if this message has our service's X-Loop: header set,
+   indicating it is our own reply and should not be reprocessed."
+  (let ((loop-val (header "X-Loop" headers)))
+    (and loop-val
+         (string-equal (trim loop-val) (service-address)))))
+
+;;; ── Mailing list detection (RFC 2369, RFC 2919) ──────────────────────────
+
+(defun list-message-p (headers)
+  "Return T if this message was delivered through a mailing list.
+   Checks per RFC 2369 (List-*) and RFC 2919 (List-Id) headers,
+   plus common MTA conventions (Precedence: list/bulk, Mailing-List:)."
+  (or (header "List-Id"      headers)      ; RFC 2919
+      (header "List-Post"    headers)      ; RFC 2369
+      (header "List-Help"    headers)      ; RFC 2369
+      (header "List-Archive" headers)      ; RFC 2369
+      (header "Mailing-List" headers)      ; Mailman/ezmlm convention
+      (let ((prec (header "Precedence" headers)))
+        (and prec (member (string-downcase (trim prec))
+                          '("list" "bulk")
+                          :test #'string=)))))
+
+(defun list-reply-address (headers)
+  "Extract the list posting address from List-Post: header (RFC 2369).
+   Falls back to the inbound To: address (the list address the request
+   was sent to). Returns address string."
+  (let ((list-post (header "List-Post" headers)))
+    (if list-post
+        ;; List-Post: <mailto:list@example.com> -> extract the address
+        (let* ((start (position #\< list-post))
+               (end   (position #\> list-post :start (or start 0))))
+          (if (and start end)
+              (let ((mailto (subseq list-post (1+ start) end)))
+                ;; Strip leading "mailto:" if present
+                (if (string-equal "mailto:" mailto :end2 (min 7 (length mailto)))
+                    (subseq mailto 7)
+                    mailto))
+              ;; Malformed List-Post -- fall back to To:
+              (header "To" headers)))
+        ;; No List-Post: -- use the To: address (the list address)
+        (header "To" headers))))
+
+;;; ── Reply address discovery (W3C SOAP 1.2 Email Binding §4.2.3) ─────────
+
+(defun reply-to-address (headers)
+  "Discover the correct reply address per W3C SOAP 1.2 Email Binding:
+     sender-node-uri = From: of the request  (direct 1:1)
+   When the message arrived via a mailing list (detected from RFC 2369/
+   2919 headers and Precedence:), the list address is the transport
+   endpoint and all subscribers -- including downstream SOAP consumers --
+   should receive the response:
+     list-address    = List-Post: or To: of the request (1:many)
+   Returns (values address mode) where mode is :list or :direct."
+  (if (list-message-p headers)
+      (values (list-reply-address headers) :list)
+      (values (header "From" headers) :direct)))
+
+;;; ── SOAP XML helpers (using xmls) ────────────────────────────────────────
+
+(defun find-child (local-name ns node)
+  "Find first child of NODE with given local name and namespace URI."
+  (dolist (child (xmls:node-children node))
+    (when (and (xmls:node-p child)
+               (string-equal local-name (xmls:node-name child))
+               (or (null ns)
+                   (equal ns (xmls:node-ns child))))
+      (return child))))
+
+(defun child-text (local-name ns node)
+  "Return text content of the first matching child element."
+  (let ((child (find-child local-name ns node)))
     (when child
-      (string-trim* (xml-text child)))))
+      (let ((children (xmls:node-children child)))
+        (when (and children (stringp (car children)))
+          (trim (car children)))))))
+
+(defun parse-soap-envelope (body-string)
+  "Parse the message body as a SOAP 1.2 envelope.
+   Returns (values envelope soap-body operation) or signals an error."
+  (handler-case
+      (let* ((doc      (xmls:parse body-string))
+             (envelope doc)
+             (body-el  (find-child "Body" *soap-envelope-ns* envelope))
+             (op       (when body-el
+                         (dolist (c (xmls:node-children body-el))
+                           (when (xmls:node-p c)
+                             (return c))))))
+        (unless (string-equal "Envelope" (xmls:node-name envelope))
+          (error "Root element is not soap:Envelope"))
+        (unless body-el
+          (error "No soap:Body found in envelope"))
+        (unless op
+          (error "soap:Body is empty"))
+        (values envelope body-el op))
+    (error (e)
+      (error "SOAP parse error: ~A" e))))
 
 ;;; ── SOAP envelope builders ───────────────────────────────────────────────
 
-(defun soap-response-envelope (body-content)
+(defun build-envelope (body-content-string)
+  "Wrap body-content-string in a SOAP 1.2 envelope."
   (format nil
     "<?xml version=\"1.0\" encoding=\"utf-8\"?>~%~
-     <soap:Envelope~%~
-         xmlns:soap=\"http://schemas.xmlsoap.org/soap/envelope/\"~%~
-         xmlns:cal=\"http://example.com/soap/calculator/\">~%~
-       <soap:Body>~%~
+     <env:Envelope~%~
+         xmlns:env=\"~A\"~%~
+         xmlns:cal=\"~A\">~%~
+       <env:Body>~%~
      ~A~
-       </soap:Body>~%~
-     </soap:Envelope>~%"
-    body-content))
+       </env:Body>~%~
+     </env:Envelope>~%"
+    *soap-envelope-ns*
+    *calc-ns*
+    body-content-string))
 
-(defun soap-result (op-name result-name value)
-  (format nil
-    "    <cal:~AResponse>~%~
-           <cal:~A>~A</cal:~A>~%~
-         </cal:~AResponse>~%"
-    op-name result-name value result-name op-name))
+(defun build-result (op-name result-name value)
+  (format nil "    <cal:~AResponse>~%      <cal:~A>~A</cal:~A>~%    </cal:~AResponse>~%"
+          op-name result-name value result-name op-name))
 
-(defun soap-fault (code reason detail)
+(defun build-fault (code reason detail)
+  "Build a SOAP 1.2 Fault element."
   (format nil
-    "    <soap:Fault>~%~
-           <faultcode>soap:~A</faultcode>~%~
-           <faultstring>~A</faultstring>~%~
-           <detail>~A</detail>~%~
-         </soap:Fault>~%"
+    "    <env:Fault>~%~
+           <env:Code><env:Value>env:~A</env:Value></env:Code>~%~
+           <env:Reason><env:Text xml:lang=\"en\">~A</env:Text></env:Reason>~%~
+           <env:Detail>~A</env:Detail>~%~
+         </env:Fault>~%"
     code reason detail))
 
-;;; ── Calculator operations ────────────────────────────────────────────────
+;;; ── Calculator dispatch ──────────────────────────────────────────────────
 
-(defun dispatch-operation (operation)
-  "Dispatch the SOAP operation. Returns (values body-content is-fault)."
-  (let ((op-name (xml-local operation)))
+(defun integer-param (name op)
+  "Parse named integer parameter from operation element."
+  (let ((text (child-text name *calc-ns* op)))
+    (unless text
+      (error "Missing parameter: ~A" name))
+    (multiple-value-bind (val end)
+        (parse-integer text :junk-allowed t)
+      (unless (and val (= end (length text)))
+        (error "Parameter ~A is not an integer: ~S" name text))
+      val)))
+
+(defun dispatch (operation)
+  "Dispatch SOAP operation. Returns (values response-body-string fault-p)."
+  (let ((op-name (xmls:node-name operation)))
     (cond
-      ;; Operations requiring two integer params
       ((member op-name '("Add" "Subtract" "Multiply" "Divide")
                :test #'string-equal)
-       (let* ((a-str (soap-param "intA" operation))
-              (b-str (soap-param "intB" operation))
-              (a (when a-str (ignore-errors (parse-integer a-str))))
-              (b (when b-str (ignore-errors (parse-integer b-str)))))
-         (unless (and a b)
-           (return-from dispatch-operation
-             (values (soap-fault "Client"
-                                 "Invalid parameters"
-                                 "intA and intB must be integers")
-                     t)))
-         (cond
-           ((string-equal op-name "Add")
-            (values (soap-result "Add" "AddResult" (+ a b)) nil))
-           ((string-equal op-name "Subtract")
-            (values (soap-result "Subtract" "SubtractResult" (- a b)) nil))
-           ((string-equal op-name "Multiply")
-            (values (soap-result "Multiply" "MultiplyResult" (* a b)) nil))
-           ((string-equal op-name "Divide")
-            (if (zerop b)
-                (values (soap-fault "Client"
-                                    "Division by zero"
-                                    "intB must be non-zero")
-                        t)
-                (values (soap-result "Divide" "DivideResult" (floor a b))
-                        nil))))))
+       (handler-case
+           (let ((a (integer-param "intA" operation))
+                 (b (integer-param "intB" operation)))
+             (cond
+               ((string-equal op-name "Add")
+                (values (build-result "Add" "AddResult" (+ a b)) nil))
+               ((string-equal op-name "Subtract")
+                (values (build-result "Subtract" "SubtractResult" (- a b)) nil))
+               ((string-equal op-name "Multiply")
+                (values (build-result "Multiply" "MultiplyResult" (* a b)) nil))
+               ((string-equal op-name "Divide")
+                (if (zerop b)
+                    (values (build-fault "Sender" "Division by zero"
+                                         "intB must be non-zero")
+                            t)
+                    (values (build-result "Divide" "DivideResult"
+                                          (floor a b))
+                            nil)))))
+         (error (e)
+           (values (build-fault "Sender"
+                                (format nil "Invalid parameters: ~A" e)
+                                (format nil "Operation: ~A" op-name))
+                   t))))
       (t
-       (values (soap-fault "Client"
-                           (format nil "Unknown operation: ~A" op-name)
-                           (format nil "Supported: Add Subtract Multiply Divide"))
+       (values (build-fault "Sender"
+                             (format nil "Unknown operation: ~A" op-name)
+                             "Supported: Add Subtract Multiply Divide")
                t)))))
 
-;;; ── Email reply ──────────────────────────────────────────────────────────
+;;; ── Send reply ───────────────────────────────────────────────────────────
 
-(defun send-reply (to subject in-reply-to soap-envelope-string)
-  (let ((sendmail (getenv "MLISP_SENDMAIL" "/usr/sbin/sendmail"))
-        (from     (getenv "SOAP_SERVICE_ADDRESS" "soap-calc@example.com")))
-    (let ((proc (sb-ext:run-program sendmail (list "-t")
-                                    :input :stream
-                                    :wait nil)))
+(defun send-reply (to from subject message-id soap-envelope-string mode)
+  "Send the SOAP response email.
+   MODE is :list (reply to list address) or :direct (reply to caller).
+   Sets X-Loop: to prevent the service reprocessing its own reply."
+  (let ((proc (sb-ext:run-program (sendmail-path) (list "-t")
+                                   :input :stream
+                                   :wait nil)))
+    (let ((in (sb-ext:process-input proc)))
+      ;; Per W3C SOAP 1.2 Email Binding §4.2.3 (Table 9):
+      ;;   From: = request-uri (service address)
+      ;;   To:   = sender-node-uri (caller) or list address
+      ;;   In-Reply-To: = correlation:requestMessageID
+      (format in "From: ~A~%"          from)
+      (format in "To: ~A~%"            to)
+      (format in "Subject: Re: ~A~%"   subject)
+      (when message-id
+        (format in "In-Reply-To: ~A~%" message-id)
+        (format in "References: ~A~%"  message-id))
+      ;; X-Loop: guards against the service reprocessing its own reply
+      ;; when fetchmail pulls it back in (it will appear in $MAILDIR/new/
+      ;; if the service is subscribed to the list it replied to).
+      (format in "X-Loop: ~A~%"        from)
+      ;; RFC 2369 list reply marker (informational, not required by W3C spec)
+      (when (eq mode :list)
+        (format in "Precedence: list~%"))
+      ;; RFC 3902: application/soap+xml is REQUIRED by W3C SOAP 1.2 Email Binding
+      (format in "Content-Type: ~A; charset=utf-8~%"  *soap-media-type*)
+      (format in "MIME-Version: 1.0~%")
+      (format in "~%")
+      (write-string soap-envelope-string in)
+      (close in))
+    (sb-ext:process-wait proc)))
+
+(defun send-error-reply (to from subject message-id error-text)
+  "Send a plain-text error reply when the message body cannot be parsed
+   as a valid SOAP envelope (packaging failure per W3C spec §4.2.1)."
+  (let ((fault-envelope
+          (build-envelope
+           (build-fault "Sender" "Bad Request Message" error-text))))
+    ;; Even error replies use application/soap+xml where possible;
+    ;; if the input wasn't SOAP at all, fall back to text/plain.
+    (let ((proc (sb-ext:run-program (sendmail-path) (list "-t")
+                                     :input :stream
+                                     :wait nil)))
       (let ((in (sb-ext:process-input proc)))
-        (format in "From: ~A~%" from)
-        (format in "To: ~A~%" to)
-        (format in "Subject: Re: ~A~%" subject)
-        (when in-reply-to
-          (format in "In-Reply-To: ~A~%" in-reply-to)
-          (format in "References: ~A~%" in-reply-to))
-        (format in "Content-Type: text/xml; charset=utf-8~%")
+        (format in "From: ~A~%"         from)
+        (format in "To: ~A~%"           to)
+        (format in "Subject: Re: ~A~%"  subject)
+        (when message-id
+          (format in "In-Reply-To: ~A~%" message-id)
+          (format in "References: ~A~%"  message-id))
+        (format in "X-Loop: ~A~%"       from)
+        (format in "Content-Type: ~A; charset=utf-8~%" *soap-media-type*)
+        (format in "MIME-Version: 1.0~%")
         (format in "~%")
-        (write-string soap-envelope-string in)
+        (write-string fault-envelope in)
         (close in))
       (sb-ext:process-wait proc))))
 
-;;; ── Error reply ──────────────────────────────────────────────────────────
+;;; ── Maildir processing ───────────────────────────────────────────────────
 
-(defun send-error-reply (to subject in-reply-to message)
-  "Send a plain-text error reply when the request cannot be parsed as SOAP."
-  (let ((sendmail (getenv "MLISP_SENDMAIL" "/usr/sbin/sendmail"))
-        (from     (getenv "SOAP_SERVICE_ADDRESS" "soap-calc@example.com")))
-    (let ((proc (sb-ext:run-program sendmail (list "-t")
-                                    :input :stream
-                                    :wait nil)))
-      (let ((in (sb-ext:process-input proc)))
-        (format in "From: ~A~%" from)
-        (format in "To: ~A~%" to)
-        (format in "Subject: Re: ~A~%" subject)
-        (when in-reply-to
-          (format in "In-Reply-To: ~A~%" in-reply-to)
-          (format in "References: ~A~%" in-reply-to))
-        (format in "Content-Type: text/plain; charset=utf-8~%")
-        (format in "~%")
-        (format in "~A~%~%" message)
-        (format in "Namespace: http://example.com/soap/calculator/~%")
-        (format in "Operations: Add Subtract Multiply Divide~%")
-        (format in "~%")
-        (format in "Example request body:~%")
-        (format in "~%")
-        (format in "<?xml version=\"1.0\" encoding=\"utf-8\"?>~%")
-        (format in "<soap:Envelope~%")
-        (format in "    xmlns:soap=\"http://schemas.xmlsoap.org/soap/envelope/\"~%")
-        (format in "    xmlns:cal=\"http://example.com/soap/calculator/\">~%")
-        (format in "  <soap:Body>~%")
-        (format in "    <cal:Add>~%")
-        (format in "      <cal:intA>3</cal:intA>~%")
-        (format in "      <cal:intB>4</cal:intB>~%")
-        (format in "    </cal:Add>~%")
-        (format in "  </soap:Body>~%")
-        (format in "</soap:Envelope>~%")
-        (close in))
-      (sb-ext:process-wait proc))))
+(defun ensure-trailing-slash (str)
+  (if (char= (char str (1- (length str))) #\/)
+      str
+      (concatenate 'string str "/")))
+
+(defun maildir-new (maildir)
+  "Return pathnames of all files in $MAILDIR/new/."
+  (let* ((new-str (concatenate 'string (ensure-trailing-slash maildir) "new/"))
+         (new-pn  (pathname new-str))
+         (wild    (make-pathname :directory (pathname-directory new-pn)
+                                 :name :wild
+                                 :type :wild)))
+    (when (probe-file new-pn)
+      (directory wild))))
+
+(defun mark-read (pathname)
+  "Move message from new/ to cur/ (Maildir read convention).
+   Appends ':2,' flags suffix as required by Maildir spec."
+  (let* ((filename (file-namestring pathname))
+         ;; Maildir flags: strip existing info field if present, add :2,
+         (base     (let ((colon (position #\: filename)))
+                     (if colon (subseq filename 0 colon) filename)))
+         (cur-path (merge-pathnames
+                    (format nil "cur/~A:2," base)
+                    (make-pathname :directory
+                                   (butlast (pathname-directory pathname)))))
+         (cur-dir  (make-pathname
+                    :directory (pathname-directory cur-path))))
+    (ensure-directories-exist cur-dir)
+    (rename-file pathname cur-path)))
+
+(defun slurp-file (pathname)
+  "Read entire file as a string."
+  (with-open-file (s pathname :external-format :utf-8)
+    (let ((buf (make-string (file-length s))))
+      (read-sequence buf s)
+      buf)))
+
+(defun process-message (pathname service-addr)
+  "Process one Maildir message file. Returns :processed, :skipped, or :error."
+  (handler-case
+      (let* ((raw     (slurp-file pathname))
+             (headers (nth-value 0 (parse-message raw)))
+             (body    (nth-value 1 (parse-message raw))))
+        ;; Skip messages with our own X-Loop: header
+        (when (x-loop-p headers)
+          (mark-read pathname)
+          (return-from process-message :skipped))
+        ;; Skip messages that don't have application/soap+xml (RFC 3902)
+        ;; or have no Content-Type at all -- but be lenient: if there's
+        ;; no Content-Type, try to parse anyway (some clients omit it).
+        (let ((content-type (header "Content-Type" headers)))
+          (when (and content-type
+                     (not (search "soap+xml" (string-downcase content-type))))
+            (mark-read pathname)
+            (return-from process-message :skipped)))
+        (let ((from       (header "From"       headers))
+              (subject    (or (header "Subject" headers) "SOAP Service"))
+              (message-id (header "Message-ID" headers)))
+          (unless from
+            (mark-read pathname)
+            (return-from process-message :skipped))
+          ;; Discover reply path
+          (multiple-value-bind (reply-to mode)
+              (reply-to-address headers)
+            ;; Parse the SOAP envelope
+            (handler-case
+                (multiple-value-bind (envelope body-el operation)
+                    (parse-soap-envelope (trim body))
+                  (declare (ignore envelope body-el))
+                  ;; Dispatch the operation
+                  (multiple-value-bind (response-body fault-p)
+                      (dispatch operation)
+                    (declare (ignore fault-p))
+                    (let ((soap-response (build-envelope response-body)))
+                      (send-reply reply-to service-addr subject
+                                  message-id soap-response mode))))
+              (error (e)
+                (send-error-reply (or reply-to from) service-addr
+                                  subject message-id
+                                  (format nil "~A" e)))))
+          (mark-read pathname)
+          :processed))
+    (error (e)
+      (format *error-output*
+              "soap-service: error processing ~A: ~A~%"
+              (file-namestring pathname) e)
+      :error)))
 
 ;;; ── Main entry point ─────────────────────────────────────────────────────
 
 (defun main ()
-  (let* ((raw (with-output-to-string (s)
-                (loop for line = (read-line *standard-input* nil nil)
-                      while line
-                      do (write-string line s)
-                         (write-char #\Newline s)))))
-    (multiple-value-bind (headers body)
-        (parse-email raw)
-      (let ((from       (header "From" headers))
-            (subject    (or (header "Subject" headers) ""))
-            (message-id (header "Message-ID" headers)))
-        (unless from
-          ;; No From: -- nothing to reply to, exit silently.
-          (sb-ext:exit :code 0))
-        (let ((envelope (ignore-errors (parse-xml (string-trim* body)))))
-          (unless (and envelope
-                       (listp envelope)
-                       (string-equal "Envelope" (xml-local envelope)))
-            (send-error-reply from subject message-id
-                              "Error: message body is not a valid SOAP Envelope.")
-            (sb-ext:exit :code 0))
-          (let ((body-el (soap-body envelope)))
-            (unless body-el
-              (send-error-reply from subject message-id
-                                "Error: SOAP Envelope has no Body element.")
-              (sb-ext:exit :code 0))
-            (let ((operation (soap-operation body-el)))
-              (unless operation
-                (send-error-reply from subject message-id
-                                  "Error: SOAP Body contains no operation element.")
-                (sb-ext:exit :code 0))
-              (multiple-value-bind (body-content is-fault)
-                  (dispatch-operation operation)
-                (declare (ignore is-fault))
-                (let ((response (soap-response-envelope body-content)))
-                  (send-reply from subject message-id response))))))))))
+  (let* ((maildir      (maildir-root))
+         (service-addr (service-address))
+         (messages     (maildir-new maildir)))
+    (unless messages
+      (sb-ext:exit :code 0))
+    (let ((processed 0) (skipped 0) (errors 0))
+      (dolist (msg messages)
+        (case (process-message msg service-addr)
+          (:processed (incf processed))
+          (:skipped   (incf skipped))
+          (:error     (incf errors))))
+      (format *error-output*
+              "soap-service: ~A processed, ~A skipped, ~A errors~%"
+              processed skipped errors)))
+  (sb-ext:exit :code 0))
 
-(main)
+;;; ── Entry point guard ───────────────────────────────────────────────────
+;;; Only call main when running as a binary (sb-ext:*runtime-pathname*
+;;; is set when dumped via save-lisp-and-die). During build-time load
+;;; (build.lisp) this form is not evaluated.
+(eval-when (:execute)
+  (unless (and (boundp 'cl-user::*soap-service-building*)
+               cl-user::*soap-service-building*)
+    (main)))
