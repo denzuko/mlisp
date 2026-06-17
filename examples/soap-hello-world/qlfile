@@ -1,0 +1,9 @@
+; qlfile -- qlot dependency manifest for soap-hello-world
+; Run: qlot install
+; See: https://github.com/fukamachi/qlot
+
+; XML parsing for SOAP envelope (namespace-aware, no external process)
+ql xmls
+
+; Primary BDD/unit testing framework
+ql fiveam
