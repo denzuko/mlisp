@@ -1,0 +1,25 @@
+#!/bin/sh
+# examples/soap-hello-world/soap-service
+#
+# Wrapper that invokes soap-service.lisp via SBCL.
+# Receives the raw email on stdin; replies to the From: address.
+#
+# With --script SBCL redirects stdin to the .lisp file, so we use
+# --non-interactive --load instead to keep stdin available for reading
+# the email message.
+#
+# Usage (via procmail):
+#   :0
+#   * ^To:.*soap-calc@example\.com
+#   | /path/to/examples/soap-hello-world/soap-service
+#
+# Environment:
+#   MLISP_SENDMAIL        sendmail(8) path (default: /usr/sbin/sendmail)
+#   SOAP_SERVICE_ADDRESS  From: address in replies (default: soap-calc@example.com)
+
+DIR="$(cd "$(dirname "$0")" && pwd)"
+
+exec sbcl --noinform \
+          --load "${DIR}/soap-service.lisp" \
+          --eval "(sb-ext:exit :code 0)" \
+          2>/dev/null
