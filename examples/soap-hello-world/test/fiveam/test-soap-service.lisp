@@ -213,8 +213,8 @@
   "intA and intB are correctly extracted as integers."
   (let ((op (soap-service:parse-soap-envelope
              (make-soap-envelope "Multiply" "intA" 6 "intB" 7))))
-    (is (= 6 (soap-service:soap-param "intA" op)))
-    (is (= 7 (soap-service:soap-param "intB" op)))))
+    (is (= 6 (soap-service:soap-param "intA" op *calc-ns*)))
+    (is (= 7 (soap-service:soap-param "intB" op *calc-ns*)))))
 
 (test SOAP-4-invalid-xml-signals-error
   "Non-XML body signals a condition."
@@ -299,11 +299,13 @@
               (soap-service:build-result "Add" "AddResult" 7))))
     (is (search "schemas.xmlsoap.org/soap/envelope" env))))
 
-(test BUILD-2-envelope-has-calc-namespace
-  "Built envelope declares the calculator namespace."
+(test BUILD-2-envelope-accepts-extra-namespaces
+  "build-soap-envelope :extra-namespaces injects caller-supplied ns declarations."
   (let ((env (soap-service:build-soap-envelope
-              (soap-service:build-result "Add" "AddResult" 7))))
-    (is (search "example.com/soap/calculator" env))))
+              "body"
+              :extra-namespaces '(("cal" . "http://example.com/soap/calculator/")))))
+    (is (search "example.com/soap/calculator" env))
+    (is (search "xmlns:cal" env))))
 
 (test BUILD-3-fault-contains-code-and-reason
   "Built fault contains Code/Reason elements."
@@ -311,11 +313,47 @@
     (is (search "Sender"      fault))
     (is (search "Test reason" fault))))
 
-(test BUILD-4-result-contains-value
-  "build-result embeds the computed value."
-  (let ((result (soap-service:build-result "Multiply" "MultiplyResult" 42)))
+(test BUILD-4-result-contains-value-and-prefix
+  "build-result uses the supplied namespace prefix."
+  (let ((result (soap-service:build-result "Multiply" "MultiplyResult" 42 "cal")))
     (is (search "42"            result))
-    (is (search "MultiplyResult" result))))
+    (is (search "MultiplyResult" result))
+    (is (search "cal:Multiply"   result))))
+
+;;; ── Decoupling specs ─────────────────────────────────────────────────────
+;;; Verify the handler/envelope-builder injection boundary works correctly.
+;;; This is the key API for future library users.
+
+(test DECOUPLE-1-process-batch-accepts-custom-handler
+  "process-batch accepts an injected handler function -- no coupling to dispatch-soap."
+  (let* ((mdir (merge-pathnames "Maildir/" (uiop:temporary-directory)))
+         (new  (merge-pathnames "new/" mdir))
+         (cur  (merge-pathnames "cur/" mdir))
+         (captured-op nil)
+         (custom-handler (lambda (op)
+                           (setf captured-op (soap-service:soap-operation-name op))
+                           (values "<custom>reply</custom>" nil))))
+    (ensure-directories-exist new)
+    (ensure-directories-exist cur)
+    ;; Drop a SOAP message into new/
+    (with-open-file (f (merge-pathnames "test.eml" new)
+                       :direction :output :if-does-not-exist :create)
+      (write-string
+       (format nil "From: a@b.com~%To: svc@example.com~%Subject: test~%Message-ID: <x@y>~%Content-Type: application/soap+xml~%MIME-Version: 1.0~%~%<?xml version=\"1.0\"?><env:Envelope xmlns:env=\"http://schemas.xmlsoap.org/soap/envelope/\"><env:Body><svc:Ping xmlns:svc=\"http://example.com/\"/></env:Body></env:Envelope>~%")
+       f))
+    ;; Stub sendmail so we don't actually send
+    (let ((old-sendmail (soap-service::getenv "MLISP_SENDMAIL")))
+      (sb-ext:posix-setenv "MLISP_SENDMAIL" "/bin/true" 1)
+      (soap-service:process-batch (namestring mdir) "svc@example.com"
+                                  :handler custom-handler
+                                  :envelope-builder #'soap-service:build-soap-envelope)
+      (when old-sendmail
+        (sb-ext:posix-setenv "MLISP_SENDMAIL" old-sendmail 1)))
+    ;; Custom handler was called with the correct operation
+    (is (string= "Ping" captured-op))
+    ;; Message was marked read
+    (is (null (soap-service:maildir-new (namestring mdir))))
+    (uiop:delete-directory-tree mdir :validate t)))
 
 ;;; ── Maildir specs ────────────────────────────────────────────────────────
 

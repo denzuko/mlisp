@@ -10,28 +10,37 @@
 (defpackage #:soap-service
   (:use #:cl #:xmls)
   (:export
-   ;; Loop guard (operates on cl-mime header alist)
+   ;; ── Transport layer (generic, publishable) ───────────────────────────
+   ;; Loop guard
    #:x-loop-p
-   ;; List detection (RFC 2369 / 2919, cl-mime header alist)
+   ;; List detection (RFC 2369 / 2919)
    #:list-message-p
-   ;; Reply routing
+   ;; Reply routing (W3C SOAP 1.2 Email Binding §4.2.3)
    #:reply-to-address
-   ;; Content-type (cl-mime content-type/subtype)
+   ;; Content-type (RFC 3902)
    #:soap-content-type-p
-   ;; SOAP parsing
+   ;; SOAP envelope parsing
    #:parse-soap-envelope
    #:soap-operation-name
    #:soap-param
-   ;; SOAP building
+   ;; SOAP envelope building (namespace-parameterised)
    #:build-soap-envelope
    #:build-result
    #:build-fault
-   ;; Dispatch
-   #:dispatch-soap
-   ;; Maildir
+   ;; Maildir batch processing
    #:maildir-new
    #:mark-read
-   ;; Reply
+   ;; Sendmail reply
    #:send-reply
-   ;; Main
+   ;; Generic batch processor (inject your own handler + envelope-builder)
+   #:process-batch
+   ;; ── Example layer (calculator service, not part of generic library) ──
+   ;; Dispatcher -- implement this protocol for your own service
+   #:dispatch-soap
+   ;; Namespace parameters -- owned by the example, not the transport
+   #:*calc-ns*
+   #:*calc-prefix*
+   ;; Convenience envelope wrapper for the calculator namespace
+   #:calc-envelope
+   ;; Entry point (wired to calculator example defaults)
    #:main))
