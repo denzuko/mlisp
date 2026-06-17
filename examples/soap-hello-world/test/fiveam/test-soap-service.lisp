@@ -342,13 +342,14 @@
        (format nil "From: a@b.com~%To: svc@example.com~%Subject: test~%Message-ID: <x@y>~%Content-Type: application/soap+xml~%MIME-Version: 1.0~%~%<?xml version=\"1.0\"?><env:Envelope xmlns:env=\"http://schemas.xmlsoap.org/soap/envelope/\"><env:Body><svc:Ping xmlns:svc=\"http://example.com/\"/></env:Body></env:Envelope>~%")
        f))
     ;; Stub sendmail so we don't actually send
-    (let ((old-sendmail (soap-service::getenv "MLISP_SENDMAIL")))
-      (sb-ext:posix-setenv "MLISP_SENDMAIL" "/bin/true" 1)
+    (let ((old-sendmail (sb-posix:getenv "MLISP_SENDMAIL")))
+      (sb-posix:setenv "MLISP_SENDMAIL" "/bin/true" 1)
       (soap-service:process-batch (namestring mdir) "svc@example.com"
                                   :handler custom-handler
                                   :envelope-builder #'soap-service:build-soap-envelope)
-      (when old-sendmail
-        (sb-ext:posix-setenv "MLISP_SENDMAIL" old-sendmail 1)))
+      (if old-sendmail
+          (sb-posix:setenv "MLISP_SENDMAIL" old-sendmail 1)
+          (sb-posix:unsetenv "MLISP_SENDMAIL")))
     ;; Custom handler was called with the correct operation
     (is (string= "Ping" captured-op))
     ;; Message was marked read
