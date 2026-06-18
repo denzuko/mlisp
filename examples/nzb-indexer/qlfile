@@ -1,0 +1,14 @@
+; qlfile -- qlot dependency manifest for com.dwightaspencer.nzb-indexer
+; Run: qlot install
+
+; RFC 2045 MIME / RFC 5322 message parsing
+ql cl-mime
+
+; XML generation for NZB format
+ql xmls
+
+; BDD/unit testing framework
+ql fiveam
+
+; Documentation
+ultralisp 40ants-doc
