@@ -7,20 +7,68 @@ on:
     branches: ["develop", "main"]
 
 jobs:
-  build-and-test:
-    name: Build and test
+  # ── Primary: FiveAM unit/BDD tests via 40ants toolchain ──────────────────
+  #
+  # FiveAM (mlisp-suite + mime-suite, 78 specs) is the source-of-truth for
+  # behavioral correctness of src/*.lisp. Runs first; BATS integration
+  # tests only run once these pass.
+  unit-tests:
+    name: FiveAM unit tests
     runs-on: ubuntu-latest
 
+    strategy:
+      matrix:
+        lisp: [sbcl-bin]
+
+    env:
+      LISP: ${{ matrix.lisp }}
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # render-troff-produces-output (mlisp-suite) shells out to
+      # /usr/bin/groff via src/troff.lisp's render-troff-to-text.
+      # 40ants/setup-lisp installs Roswell/SBCL/Qlot only, not groff.
+      - name: Install groff (required by FiveAM render-troff-produces-output)
+        run: sudo apt-get update -qq && sudo apt-get install -y groff
+
+      - name: Setup Common Lisp (Roswell + Qlot)
+        uses: 40ants/setup-lisp@v4
+        with:
+          asdf-system: mlisp
+          qlfile-template: |
+            ql fiveam
+
+      - name: Run FiveAM unit tests (mlisp-suite + mime-suite, 78 specs)
+        uses: 40ants/run-tests@v2
+        with:
+          asdf-system: mlisp
+          run-tests: |
+            (asdf:test-system :mlisp)
+
+  # ── Secondary: BATS integration tests (compiled binaries, end-to-end) ───
+  #
+  # Integration tests exercise the compiled binaries via subprocess.
+  # Depend on unit-tests passing first (fail fast on logic errors
+  # before spending time on binary builds + 2 VM jobs in release.yml).
+  integration-tests:
+    name: BATS integration tests
+    runs-on: ubuntu-latest
+    needs: unit-tests
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Install system dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y sbcl groff bats gpg
+          sudo apt-get install -y sbcl groff bats gpg m4 curl jq
 
-      - name: Install Quicklisp + FiveAM
+      - name: Install Quicklisp
         run: |
           curl -sO https://beta.quicklisp.org/quicklisp.lisp
           sbcl --non-interactive \
@@ -28,96 +76,62 @@ jobs:
                --eval '(quicklisp-quickstart:install :path (merge-pathnames "quicklisp/" (user-homedir-pathname)))' \
                --eval '(ql:quickload :fiveam :silent t)'
 
-      - name: Build mlisp
-        run: sbcl --non-interactive --load build.lisp
+      - name: Build all binaries (including neural)
+        run: make build-all
 
-      - name: Build mlisp-admin
-        run: sbcl --non-interactive --load build-admin.lisp
-
-      - name: Build mlisp-distrib
-        run: sbcl --non-interactive --load build-distrib.lisp
-
-      - name: Verify binaries exist and run
+      - name: Verify binaries
         run: |
-          test -x bin/mlisp
-          test -x bin/mlisp-admin
-          test -x bin/mlisp-distrib
+          for b in bin/mlisp bin/mlisp-admin bin/mlisp-bugs bin/mlisp-distrib bin/mlisp-procmail-gen bin/neural; do
+            test -x "$b" || (echo "Missing: $b" && exit 1)
+          done
           bin/mlisp --help
           bin/mlisp-admin --help
-          bin/mlisp-distrib --help
-
-      - name: FiveAM unit tests — mlisp
-        run: |
-          sbcl --non-interactive \
-               --load build.lisp 2>/dev/null || true
-          sbcl --non-interactive \
-               --eval "(load (merge-pathnames \"quicklisp/setup.lisp\" (user-homedir-pathname)))" \
-               --eval "(ql:quickload :fiveam :silent t)" \
-               --eval "(push (truename \".\") asdf:*central-registry*)" \
-               --load test/fiveam/test-mlisp.lisp
-
-      - name: FiveAM unit tests — MIME
-        run: |
-          sbcl --non-interactive \
-               --eval "(load (merge-pathnames \"quicklisp/setup.lisp\" (user-homedir-pathname)))" \
-               --eval "(ql:quickload :fiveam :silent t)" \
-               --eval "(push (truename \".\") asdf:*central-registry*)" \
-               --load test/fiveam/test-mlisp-mime.lisp
-
-      - name: BATS integration tests
-        run: MLISP_HOME="$(pwd)" bats --tap test/bats/test_mlisp.bats
-
-      - name: BATS regression tests
-        run: MLISP_HOME="$(pwd)" bats --tap test/bats/test_mlisp_regression.bats
-
-      - name: BATS compliance tests
-        run: MLISP_HOME="$(pwd)" bats --tap test/bats/test_mlisp_compliance.bats
-
-      - name: BATS config/admin tests
-        run: MLISP_HOME="$(pwd)" bats --tap test/bats/test_mlisp_config.bats
-
-      - name: BATS procmail tests
-        run: MLISP_HOME="$(pwd)" bats --tap test/bats/test_mlisp_procmail.bats
-
-      - name: BATS MIME tests
-        run: MLISP_HOME="$(pwd)" bats --tap test/bats/test_mlisp_mime.bats
-
-      - name: BATS feature tests
-        run: MLISP_HOME="$(pwd)" bats --tap test/bats/test_mlisp_features.bats
-
-      - name: BATS batch2 tests
-        run: MLISP_HOME="$(pwd)" bats --tap test/bats/test_mlisp_batch2.bats
-
-      - name: BATS GPG/hash tests
-        run: MLISP_HOME="$(pwd)" bats --tap test/bats/test_mlisp_gpg.bats
-
-      - name: Build mlisp-bugs
-        run: sbcl --non-interactive --load build-bugs.lisp
-
-      - name: Build mlisp-procmail-gen
-        run: sbcl --non-interactive --load build-procmail-gen.lisp
-
-      - name: Verify mlisp-bugs and mlisp-procmail-gen binaries
-        run: |
-          test -x bin/mlisp-bugs
-          test -x bin/mlisp-procmail-gen
           bin/mlisp-procmail-gen --help
 
-      # The following suites existed but were not previously wired into CI
-      # (gap predates this change; closing it here since it directly affects
-      # mlisp-bugs and mlisp-procmail-gen, both built above).
-      - name: BATS v0.4/v0.5/v0.6/filters/bugs/procmail-gen suites
+      - name: BATS integration tests (all suites)
         run: |
-          for s in test_mlisp_v04a test_mlisp_v04b test_mlisp_v04cd \
-                   test_mlisp_v05 test_mlisp_v06 test_mlisp_filters \
-                   test_mlisp_bugs test_mlisp_procmail_gen; do
-            echo "=== $s ==="
-            MLISP_HOME="$(pwd)" bats --tap "test/bats/${s}.bats"
+          for f in $(find test/bats -name '*.bats' | sort); do
+            echo "=== $f ==="
+            MLISP_HOME="$(pwd)" bats --tap "$f"
           done
+
+  # ── Documentation (40ANTS-DOC-FULL via 40ants/build-docs) ────────────────
+  #
+  # Builds HTML docs from docstrings/40ants-doc page definitions and
+  # pushes any changes to gh-pages. Runs only on develop/main (not every
+  # PR) since it can push commits.
+  docs:
+    name: Documentation
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    if: github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+
+    env:
+      LISP: sbcl-bin
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Common Lisp (Roswell + Qlot)
+        uses: 40ants/setup-lisp@v4
+        with:
+          asdf-system: mlisp-docs
+          qlfile-template: |
+            ql fiveam
+            ultralisp 40ants-doc
+
+      - name: Build and publish documentation
+        uses: 40ants/build-docs@v1
+        with:
+          asdf-system: mlisp-docs
 
   notify-failure:
     name: Notify on failure
-    needs: build-and-test
+    needs: [unit-tests, integration-tests]
     if: failure() && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:

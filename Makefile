@@ -1,17 +1,32 @@
-# mlisp Makefile — v0.3.0
+# mlisp Makefile — v0.8.0
 
 SBCL      ?= sbcl
 BATS      ?= bats
 PREFIX    ?= /usr/local
-QL_SETUP  := $(HOME)/quicklisp/setup.lisp
-SBCL_QL   := $(if $(wildcard $(QL_SETUP)),--eval '(load "$(QL_SETUP)")',)
+
+# Quicklisp: check standard locations + .qlot/ (qlot managed environment)
+QL_SETUP  := $(firstword $(wildcard \
+  .qlot/setup.lisp \
+  $(HOME)/quicklisp/setup.lisp \
+  $(HOME)/.quicklisp/setup.lisp \
+  /home/claude/quicklisp/setup.lisp))
+SBCL_QL   := $(if $(QL_SETUP),--eval '(load "$(QL_SETUP)")',)
+
+# qlot: use if available (40ants CI workflow uses it)
+QLOT      ?= $(shell command -v qlot 2>/dev/null)
+QLOT_EXEC := $(if $(QLOT),$(QLOT) exec,)
 
 .PHONY: all build-all build \
+        deps \
         test test-unit test-bats clean install
 
 ## ── Default ──────────────────────────────────────────────────────────────────
 
 all: build-all
+
+# Install runtime dependencies for mlisp and neural.sh (bash, curl, jq, jo, m4)
+deps:
+	$(MAKE) -C vendor/neural.sh deps
 
 ## ── Compile ──────────────────────────────────────────────────────────────────
 ##
@@ -25,9 +40,23 @@ all: build-all
 EXTRA_BINS := $(patsubst build-%.lisp,mlisp-%,$(filter-out build.lisp,$(wildcard build-*.lisp)))
 BINS       := mlisp $(EXTRA_BINS)
 
-build-all: $(addprefix bin/,$(BINS))
+build-all: $(addprefix bin/,$(BINS)) bin/neural
 
 build: bin/mlisp
+
+# bin/neural is vendor/neural.sh's own build output, copied as-is.
+# `make -C vendor/neural.sh build` runs that submodule's own m4-based
+# compilation internally -- m4 is neural.sh's build dependency, not
+# mlisp's. mlisp just copies the resulting self-contained shell script
+# (bash + curl + jq + jo at runtime).
+NEURAL_SRC := vendor/neural.sh/pkg/neural.sh/.local/bin/neural
+
+bin/neural: $(NEURAL_SRC)
+	cp $(NEURAL_SRC) bin/neural
+	chmod +x bin/neural
+
+$(NEURAL_SRC):
+	$(MAKE) -C vendor/neural.sh build
 
 bin/mlisp: mlisp.asd src/*.lisp build.lisp
 	$(SBCL) --non-interactive $(SBCL_QL) --load build.lisp
@@ -43,17 +72,14 @@ build-%: bin/mlisp-%
 
 test: test-unit test-bats
 
+# Primary unit/BDD tests via FiveAM + asdf:test-system.
+# Uses qlot exec when available (40ants CI), falls back to direct sbcl.
 test-unit:
-	@echo "==> FiveAM: mlisp"
-	$(SBCL) --non-interactive $(SBCL_QL) \
+	@echo "==> FiveAM unit tests (primary BDD: mlisp-suite + mime-suite)"
+	$(QLOT_EXEC) $(SBCL) --non-interactive $(SBCL_QL) \
 	  --eval "(ql:quickload :fiveam :silent t)" \
 	  --eval "(push (truename \".\") asdf:*central-registry*)" \
-	  --load test/fiveam/test-mlisp.lisp
-	@echo "==> FiveAM: mlisp-mime"
-	$(SBCL) --non-interactive $(SBCL_QL) \
-	  --eval "(ql:quickload :fiveam :silent t)" \
-	  --eval "(push (truename \".\") asdf:*central-registry*)" \
-	  --load test/fiveam/test-mlisp-mime.lisp
+	  --eval "(asdf:test-system :mlisp)"
 
 # Every test/bats/*.bats file is run; adding a new spec file picks it up
 # automatically with zero Makefile changes.
@@ -73,6 +99,7 @@ install: build-all
 	  echo "install -m 0755 bin/$$b $(PREFIX)/bin/$$b"; \
 	  install -m 0755 bin/$$b $(PREFIX)/bin/$$b; \
 	 done
+	install -m 0755 bin/neural $(PREFIX)/bin/neural
 	install -d $(PREFIX)/share/mlisp/state
 	install -d $(PREFIX)/share/mlisp/templates
 	install -d $(PREFIX)/share/mlisp/etc
@@ -83,13 +110,14 @@ install: build-all
 ## ── Clean ────────────────────────────────────────────────────────────────────
 
 clean:
-	rm -f $(addprefix bin/,$(BINS))
+	rm -f $(addprefix bin/,$(BINS)) bin/neural
 	find . -name '*.fasl' -delete
 
 # ─── Manpages ────────────────────────────────────────────────────────────────
 
 MANDIR ?= /usr/local/share/man
-MAN1 = src/man/mlisp.1 src/man/mlisp-admin.1 src/man/mlisp-distrib.1
+MAN1 = src/man/mlisp.1 src/man/mlisp-admin.1 src/man/mlisp-distrib.1 \
+       src/man/mlisp-bugs.1 src/man/mlisp-procmail-gen.1
 MAN7 = src/man/mlisp-intro.7
 
 man:

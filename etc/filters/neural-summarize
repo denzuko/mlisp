@@ -1,0 +1,25 @@
+#!/bin/sh
+# etc/filters/neural-summarize — mlisp-admin bugs-report --summarize wrapper
+#
+# Uses the `neural` binary, built by `make build-all` (which runs
+# `make -C vendor/neural.sh build` and copies the result to bin/neural).
+# The built binary is a self-contained shell script (bash + curl + jq +
+# jo at runtime).
+#
+# Wire up:
+#   mlisp-admin bugs-report <pkg> \
+#       --summarize /path/to/etc/filters/neural-summarize
+#
+# CONFIGURATION
+#   The model/endpoint are whatever vendor/neural.sh was built with --
+#   its default (vendor/neural.sh/src/neural.m4) is OpenAI
+#   text-davinci-003, which requires the OPENAI_API_KEY environment
+#   variable to be set. See vendor/neural.sh's own docs to change the
+#   model/endpoint.
+
+prompt="Summarize this bug tracker report in one short paragraph. \
+Highlight any critical or security-severity items first. Be concise:"
+
+report=$(cat)
+
+printf '%s\n\n%s' "$prompt" "$report" | neural -

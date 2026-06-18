@@ -33,6 +33,8 @@ do-install:
 	${INSTALL_MAN} ${WRKSRC}/src/man/mlisp.1 ${DESTDIR}${PREFIX}/man/man1/mlisp.1
 	${INSTALL_MAN} ${WRKSRC}/src/man/mlisp-admin.1 ${DESTDIR}${PREFIX}/man/man1/mlisp-admin.1
 	${INSTALL_MAN} ${WRKSRC}/src/man/mlisp-distrib.1 ${DESTDIR}${PREFIX}/man/man1/mlisp-distrib.1
+	${INSTALL_MAN} ${WRKSRC}/src/man/mlisp-bugs.1 ${DESTDIR}${PREFIX}/man/man1/mlisp-bugs.1
+	${INSTALL_MAN} ${WRKSRC}/src/man/mlisp-procmail-gen.1 ${DESTDIR}${PREFIX}/man/man1/mlisp-procmail-gen.1
 	${INSTALL_MAN} ${WRKSRC}/src/man/mlisp-intro.7 ${DESTDIR}${PREFIX}/man/man7/mlisp-intro.7
 
 .include "../../mk/bsd.pkg.mk"

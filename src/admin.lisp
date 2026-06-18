@@ -1399,16 +1399,37 @@ Config resolution order:
                      (getf state :title))))
   0)
 
-(define-admin-cmd+ bugs-report (pkg) ("--severity" "--tag" ("--open" :boolean) ("--closed" :boolean))
+(define-admin-cmd+ bugs-report (pkg) ("--severity" "--tag" ("--open" :boolean) ("--closed" :boolean) "--summarize")
     "<pkg>"
-  "bugs-report <pkg> [--open|--closed|--severity S|--tag T]"
+  "bugs-report <pkg> [--open|--closed|--severity S|--tag T] [--summarize <cmd>]
+
+   --summarize <cmd>: pipe the generated report through <cmd> (e.g. a
+   neural.sh invocation, see etc/filters/neural-summarize) and append
+   its output as a Summary section. <cmd> failing (non-zero exit)
+   prints a warning to stderr; the report itself is still printed."
   (mlisp:load-state)
-  (write-string
-   (mlisp:bugs-generate-report pkg
-                                :open-only   open
-                                :closed-only closed
-                                :severity-filter severity
-                                :tag-filter      tag))
+  (let ((report (mlisp:bugs-generate-report pkg
+                                             :open-only   open
+                                             :closed-only closed
+                                             :severity-filter severity
+                                             :tag-filter      tag)))
+    (write-string report)
+    (when summarize
+      (multiple-value-bind (summary code) (mlisp:pipe-through-command summarize report)
+        (let ((summary (string-trim '(#\Space #\Tab #\Newline #\Return) (or summary ""))))
+          (cond
+            ((and (= code 0) (> (length summary) 0))
+             (format t "~%--- Summary (via ~A) ---~%~A~%" summarize summary))
+            ((/= code 0)
+             (format *error-output* "mlisp-admin: --summarize command ~S exited ~A~%"
+                     summarize code))
+            (t
+             ;; exit 0 but empty output: e.g. neural.sh's curl|while|xargs
+             ;; pipeline always exits 0 even when curl fails to connect
+             ;; (upstream neural.sh behavior, see etc/neural-mlisp.m4).
+             (format *error-output*
+                     "mlisp-admin: --summarize command ~S produced no output~%"
+                     summarize)))))))
   0)
 
 (define-admin-cmd+ install-bugs-procmail (pkg) (("--dry-run" :boolean)) "<pkg>"

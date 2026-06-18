@@ -82,11 +82,12 @@
 
 
 (defun bugs-archive (pkg raw-msg)
-  "Write RAW-MSG to Maildir using maildir-write and bugs-list-id convention."
+  "Write RAW-MSG to Maildir using maildir-write and bugs-list-id convention.
+   Under (maildir-root): $MAILDIR/lists/<pkg>-bugs/ if $MAILDIR is set,
+   else $MLISP_HOME/state/maildir/<pkg>-bugs/."
   (maildir-write
    (uiop:ensure-directory-pathname
-    (merge-pathnames (format nil "state/maildir/~A/" (bugs-list-id pkg))
-                     (mlisp-home)))
+    (merge-pathnames (format nil "~A/" (bugs-list-id pkg)) (maildir-root)))
    raw-msg))
 
 (defun bug-message->string (path)

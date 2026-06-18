@@ -330,3 +330,48 @@ teardown() { rm -rf "${SCRATCH}"; }
     [[ "$output" == *"mode submit"* ]]
     [[ "$output" == *"mode control"* ]]
 }
+
+@test "BUG-30 bugs-report --summarize appends Summary section from external command output" {
+    "${ADMIN_BIN}" bugs-add-package mlisp mlisp-bugs-submit@panix.com
+    printf 'From: a@x.com\r\nSubject: crash\r\n\r\nPackage: mlisp\r\nSeverity: critical\r\n\r\nbody\r\n' \
+      | "${BUGS_BIN}" --mode submit mlisp
+
+    run "${ADMIN_BIN}" bugs-report mlisp --summarize "tr a-z A-Z"
+    [ "$status" -eq 0 ]
+    # Report itself still present, unmodified
+    [[ "$output" == *"Bug report for mlisp"* ]]
+    # Summary section present, with the report's content uppercased
+    [[ "$output" == *"--- Summary (via tr a-z A-Z) ---"* ]]
+    [[ "$output" == *"BUG REPORT FOR MLISP"* ]]
+}
+
+@test "BUG-31 bugs-report without --summarize has no Summary section" {
+    "${ADMIN_BIN}" bugs-add-package mlisp mlisp-bugs-submit@panix.com
+    run "${ADMIN_BIN}" bugs-report mlisp
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"--- Summary"* ]]
+}
+
+@test "BUG-32 bugs-report --summarize with a failing command warns but still prints report" {
+    "${ADMIN_BIN}" bugs-add-package mlisp mlisp-bugs-submit@panix.com
+
+    run "${ADMIN_BIN}" bugs-report mlisp --summarize "/no/such/command"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Bug report for mlisp"* ]]
+    [[ "$output" != *"--- Summary"* ]]
+    [[ "$output" == *"--summarize command"*"exited"* ]]
+}
+
+@test "BUG-33 bugs-report --summarize with empty output (exit 0) warns, no Summary section" {
+    "${ADMIN_BIN}" bugs-add-package mlisp mlisp-bugs-submit@panix.com
+
+    # Simulates neural.sh's curl|while|xargs pipeline, which exits 0
+    # with empty stdout when curl fails to connect (e.g. no Ollama
+    # running at the configured endpoint).
+    run "${ADMIN_BIN}" bugs-report mlisp --summarize "true"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Bug report for mlisp"* ]]
+    [[ "$output" != *"--- Summary"* ]]
+    [[ "$output" == *"--summarize command"*"produced no output"* ]]
+}
+

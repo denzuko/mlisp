@@ -64,6 +64,40 @@
     (push (subseq str start) parts)
     (nreverse parts)))
 
+(defun pipe-through-command (command input-string)
+  "Run COMMAND (a shell command string) with INPUT-STRING on its stdin,
+   via temp files (sh -c 'cmd < in > out', avoiding SIGPIPE). Returns
+   (values output exit-code); OUTPUT is the empty string on non-zero
+   exit.
+
+   This is for opt-in, operator-invoked integrations -- e.g.
+   `mlisp-admin bugs-report <pkg> --summarize <neural.sh invocation>`
+   (#100) -- and is distinct from invoke-single-filter, which runs the
+   mail-processing filter pipeline under SECURITY.md's stricter
+   untrusted-input contract. pipe-through-command's INPUT-STRING is
+   admin-tool-generated output (a bug report), not attacker-controlled
+   email."
+  (let* ((ts      (get-universal-time))
+         (rnd     (random 99999))
+         (tmp-in  (format nil "/tmp/mlisp-pipe-in-~A-~A" ts rnd))
+         (tmp-out (format nil "/tmp/mlisp-pipe-out-~A-~A" ts rnd)))
+    (unwind-protect
+         (progn
+           (with-open-file (s tmp-in :direction :output :if-exists :supersede
+                                     :if-does-not-exist :create)
+             (write-string input-string s))
+           (let* ((cmd  (format nil "~A < ~A > ~A" command tmp-in tmp-out))
+                  (proc (sb-ext:run-program "/bin/sh" (list "-c" cmd) :wait t))
+                  (code (or (sb-ext:process-exit-code proc) 1))
+                  (output (when (and (= code 0) (probe-file tmp-out))
+                            (with-open-file (s tmp-out)
+                              (let ((buf (make-string (file-length s))))
+                                (read-sequence buf s)
+                                buf)))))
+             (values (or output "") code)))
+      (ignore-errors (delete-file tmp-in))
+      (ignore-errors (delete-file tmp-out)))))
+
 (defun invoke-single-filter (program-path message-string timeout-secs)
   "Run PROGRAM-PATH with MESSAGE-STRING on stdin via temp files.
    Uses sh -c 'prog < in > out' to avoid SIGPIPE issues.
@@ -79,15 +113,12 @@
                                      :if-does-not-exist :create)
              (write-string message-string s))
            (let* ((cmd  (format nil "~A < ~A > ~A" program-path tmp-in tmp-out))
-                  (dummy (format *error-output* "[DEBUG-FLT] cmd=~A~%" cmd))
                   (proc (sb-ext:run-program "/bin/sh" (list "-c" cmd) :wait t))
                   (code (or (sb-ext:process-exit-code proc) 1))
-                  (dummy2 (format *error-output* "[DEBUG-FLT] code=~A~%" code))
                   (output (when (and (= code 0) (probe-file tmp-out))
                             (with-open-file (s tmp-out)
                               (let ((buf (make-string (file-length s))))
                                 (read-sequence buf s)
-                                (format *error-output* "[DBG-OUT] output=~S~%" (subseq buf 0 (min 100 (length buf))))
                                 buf)))))
              (values (or output "") code)))
       (ignore-errors (delete-file tmp-in))
@@ -113,8 +144,6 @@
                               #\Space))))
     (dolist (prog program-list)
       (let ((pgm (string-trim (list #\Space #\Tab) prog)))
-        (format *error-output* "[DEBUG-CHAIN] pgm=~S len=~A probe=~A~%"
-                pgm (length pgm) (probe-file pgm))
         (when (and (> (length pgm) 0) (probe-file pgm))
           (multiple-value-bind (output exit-code)
               (invoke-single-filter pgm current-msg 30)

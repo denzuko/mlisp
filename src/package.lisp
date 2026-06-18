@@ -91,6 +91,7 @@
    ;; Plugin filters
    #:invoke-filter-chain
    #:invoke-single-filter
+   #:pipe-through-command
    ;; AllFix/distrib
    #:add-file-to-distrib
    ;; mlisp-bugs (#69)
@@ -201,6 +202,7 @@
    ;; Path resolution (used by mlisp-admin)
    #:mlisp-home
    #:mlisp-init-target
+   #:maildir-root
    #:*mlisp-home-override*
    #:state-path
    #:audit-path

@@ -54,6 +54,25 @@
           (when (and home (> (length home) 0))
             (concatenate 'string (ensure-trailing-slash home) ".config/"))))))
 
+(defun maildir-root ()
+  "Return the root directory under which per-list Maildir archives live.
+
+   Resolution order:
+     1. $MAILDIR (Maildir-format mail spool root) -- the POSIX/
+        freedesktop.org convention honored by smartlist, procmail,
+        debbugs, and notmuch as the FIRST place to look. Lists live at
+        $MAILDIR/lists/<list-id>/.
+     2. $MLISP_HOME/state/maildir/ -- fallback when $MAILDIR is unset,
+        so mlisp's internal archive (search/index/get, mlisp-bugs) keeps
+        working out of the box with zero environment configuration.
+
+   $MAIL (the mbox-format equivalent) is not consulted here: mlisp only
+   ever writes Maildir-format archives, never mbox."
+  (let ((maildir (sb-ext:posix-getenv "MAILDIR")))
+    (if (and maildir (> (length maildir) 0))
+        (concatenate 'string (ensure-trailing-slash maildir) "lists/")
+        (concatenate 'string (mlisp-home) "state/maildir/"))))
+
 (defun mlisp-init-target ()
   "Resolve the directory `mlisp-admin init` should create/populate when
    no --dir flag is given.

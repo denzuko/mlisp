@@ -1,5 +1,8 @@
-# Compiled binary
+# Compiled binaries (all built via make build-all)
 bin/mlisp
+bin/mlisp-bugs
+bin/mlisp-procmail-gen
+bin/neural
 
 # ASDF / SBCL compiled artefacts
 *.fasl
@@ -16,11 +19,13 @@ src/mlisp.lisp.bak
 # ASDF output cache
 .cache/
 
-# Quicklisp local
-quicklisp/
+# 40ants-doc build output (docs/index.lisp -> docs/build/)
+docs/build/
+
+# qlot local environment (qlfile.lock is committed; .qlot/ is not)
+.qlot/
+qlfile.lock
 
 # Runtime state (don't commit live subscriber data)
 state/audit.sexp
-bin/mlisp-admin
 metrics/
-bin/mlisp-distrib
