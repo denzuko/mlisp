@@ -7,7 +7,7 @@
 ;;;; list-message-p  -- RFC 2369/2919 mailing list detection
 ;;;; reply-to-address -- W3C SOAP 1.2 Email Binding §4.2.3 reply routing
 
-(in-package #:soap-service)
+(in-package #:com.dwightaspencer.soap-example)
 
 ;;; ── X-Loop: guard ────────────────────────────────────────────────────────
 
@@ -71,3 +71,86 @@
              (cdr (assoc :to headers)))
          :list))
       (values (cdr (assoc :from headers)) :direct)))
+
+;;; ── Email security header inspection ────────────────────────────────────
+;;; These functions check the Authentication-Results header (RFC 7601)
+;;; and related security headers set by the MTA/MDA stack.
+;;;
+;;; IMPORTANT SCOPE NOTE: mlisp's MTA/MDA ecosystem (Postfix, procmail,
+;;; fetchmail, DKIM milters, SPF policy daemons, DMARC reporters, MTA-STS
+;;; policy enforcement, DNSSEC resolver) performs the actual cryptographic
+;;; verification and policy enforcement BEFORE messages reach $MAILDIR/.
+;;; These functions READ and CHECK the results they recorded in headers --
+;;; they do not re-implement or replace that infrastructure.
+;;;
+;;; The security posture is: trust the MTA stack's verdict (it has the
+;;; keys, the DNS resolver, the TLS session context), surface that verdict
+;;; for routing decisions and audit logging at the application layer.
+;;;
+;;; GPG/S-MIME message signing is deliberately out of scope for this
+;;; library -- handle it at the MDA layer (procmail + gpg) before
+;;; delivery to $MAILDIR/ if required by the deployment.
+
+
+(defun parse-auth-results-field (value)
+  "Parse an Authentication-Results header value into an alist of
+   (method . result) pairs. Handles RFC 7601 format:
+     'mx.example.com; dkim=pass header.d=example.com; spf=pass'
+   Returns e.g. ((\"dkim\" . \"pass\") (\"spf\" . \"pass\") ...)."
+  (let ((results '()))
+    (dolist (part (cdr (split-by-semicolon (or value ""))))
+      (let* ((trimmed (string-trim '(#\Space #\Tab) part))
+             (eq-pos  (position #\= trimmed)))
+        (when eq-pos
+          (let* ((method (string-trim '(#\Space #\Tab) (subseq trimmed 0 eq-pos)))
+                 (rest   (subseq trimmed (1+ eq-pos)))
+                 (result (string-trim '(#\Space #\Tab)
+                                      (subseq rest 0 (or (position #\Space rest)
+                                                          (length rest))))))
+            (push (cons method result) results)))))
+    (nreverse results)))
+
+(defun split-by-semicolon (str)
+  (let ((parts '()) (start 0))
+    (loop for i from 0 below (length str) do
+      (when (char= (char str i) #\;)
+        (push (subseq str start i) parts)
+        (setf start (1+ i))))
+    (push (subseq str start) parts)
+    (nreverse parts)))
+
+(defun authentication-results-p (headers)
+  "Return T if an Authentication-Results header is present (RFC 7601).
+   Presence means the message passed through an MTA that performed
+   authentication checks."
+  (not (null (assoc :authentication-results headers))))
+
+(defun check-authentication-results (headers)
+  "Parse Authentication-Results header into an alist.
+   Returns nil if no Authentication-Results header is present."
+  (let ((val (cdr (assoc :authentication-results headers))))
+    (when val (parse-auth-results-field val))))
+
+(defun auth-method-pass-p (method headers)
+  "Return T if METHOD (e.g. \"dkim\", \"spf\", \"dmarc\", \"arc\")
+   reports 'pass' in the Authentication-Results header."
+  (let ((results (check-authentication-results headers)))
+    (let ((entry (assoc method results :test #'string-equal)))
+      (and entry (string-equal "pass" (cdr entry))))))
+
+(defun dkim-pass-p (headers)
+  "Return T if DKIM signature verification passed (Authentication-Results)."
+  (auth-method-pass-p "dkim" headers))
+
+(defun spf-pass-p (headers)
+  "Return T if SPF check passed (Authentication-Results or Received-SPF)."
+  (or (auth-method-pass-p "spf" headers)
+      ;; Some MTAs write Received-SPF: instead of/in addition to Auth-Results
+      (let ((spf (cdr (assoc :received-spf headers))))
+        (and spf (string-equal "pass"
+                                (string-trim '(#\Space #\Tab)
+                                             (subseq spf 0 (min 4 (length spf)))))))))
+
+(defun dmarc-pass-p (headers)
+  "Return T if DMARC policy check passed (Authentication-Results)."
+  (auth-method-pass-p "dmarc" headers))

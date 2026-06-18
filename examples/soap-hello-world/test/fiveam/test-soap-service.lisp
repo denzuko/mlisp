@@ -20,21 +20,21 @@
 
 (let* ((here (directory-namestring (truename *load-pathname*)))
        (root (namestring (truename (merge-pathnames "../../" (parse-namestring here))))))
-  (unless (find-package :soap-service)
+  (unless (find-package :com.dwightaspencer.soap-example)
     (pushnew (truename root) asdf:*central-registry* :test #'equal)
-    (asdf:load-system :soap-service)))
+    (asdf:load-system :com.dwightaspencer.soap-example/service)))
 
 ;;; ── Test package ─────────────────────────────────────────────────────────
 
-(defpackage #:soap-service-tests
-  (:use #:cl #:fiveam #:soap-service))
+(defpackage #:com.dwightaspencer.soap-example/tests
+  (:use #:cl #:fiveam #:com.dwightaspencer.soap-example))
 
-(in-package #:soap-service-tests)
+(in-package #:com.dwightaspencer.soap-example/tests)
 
-(def-suite soap-service-suite
+(def-suite soap-example-suite
   :description "W3C SOAP 1.2 Email Binding service BDD specs")
 
-(in-suite soap-service-suite)
+(in-suite soap-example-suite)
 
 ;;; ── Fixtures ─────────────────────────────────────────────────────────────
 
@@ -110,21 +110,21 @@
   (let ((hdrs (mime:parse-headers
                (make-string-input-stream
                 (format nil "X-Loop: soap-calc@example.com~%~%")))))
-    (is (soap-service:x-loop-p hdrs "soap-calc@example.com"))))
+    (is (com.dwightaspencer.soap-example:x-loop-p hdrs "soap-calc@example.com"))))
 
 (test XLOOP-2-other-loop-not-matched
   "x-loop-p returns NIL when X-Loop: is a different service."
   (let ((hdrs (mime:parse-headers
                (make-string-input-stream
                 (format nil "X-Loop: other@example.com~%~%")))))
-    (is (not (soap-service:x-loop-p hdrs "soap-calc@example.com")))))
+    (is (not (com.dwightaspencer.soap-example:x-loop-p hdrs "soap-calc@example.com")))))
 
 (test XLOOP-3-no-loop-header
   "x-loop-p returns NIL when X-Loop: is absent."
   (let ((hdrs (mime:parse-headers
                (make-string-input-stream
                 (format nil "From: a@b.com~%~%")))))
-    (is (not (soap-service:x-loop-p hdrs "soap-calc@example.com")))))
+    (is (not (com.dwightaspencer.soap-example:x-loop-p hdrs "soap-calc@example.com")))))
 
 ;;; ── Mailing list detection specs (RFC 2369 / RFC 2919) ───────────────────
 
@@ -133,28 +133,28 @@
   (let ((hdrs (mime:parse-headers
                (make-string-input-stream
                 (format nil "List-Id: <soap.lists.example.com>~%~%")))))
-    (is (soap-service:list-message-p hdrs))))
+    (is (com.dwightaspencer.soap-example:list-message-p hdrs))))
 
 (test LIST-2-list-post-detected
   "List-Post: (RFC 2369) triggers list-message detection."
   (let ((hdrs (mime:parse-headers
                (make-string-input-stream
                 (format nil "List-Post: <mailto:soap@lists.example.com>~%~%")))))
-    (is (soap-service:list-message-p hdrs))))
+    (is (com.dwightaspencer.soap-example:list-message-p hdrs))))
 
 (test LIST-3-precedence-list-detected
   "Precedence: list triggers list-message detection."
   (let ((hdrs (mime:parse-headers
                (make-string-input-stream
                 (format nil "Precedence: list~%~%")))))
-    (is (soap-service:list-message-p hdrs))))
+    (is (com.dwightaspencer.soap-example:list-message-p hdrs))))
 
 (test LIST-4-no-list-headers
   "A message with no list headers is not a list message."
   (let ((hdrs (mime:parse-headers
                (make-string-input-stream
                 (format nil "From: a@example.com~%To: b@example.com~%~%")))))
-    (is (not (soap-service:list-message-p hdrs)))))
+    (is (not (com.dwightaspencer.soap-example:list-message-p hdrs)))))
 
 ;;; ── Reply address discovery specs ────────────────────────────────────────
 
@@ -164,7 +164,7 @@
                (make-string-input-stream
                 (format nil "From: caller@example.com~%To: soap@example.com~%~%")))))
     (multiple-value-bind (addr mode)
-        (soap-service:reply-to-address hdrs)
+        (com.dwightaspencer.soap-example:reply-to-address hdrs)
       (is (string= "caller@example.com" addr))
       (is (eq :direct mode)))))
 
@@ -174,7 +174,7 @@
                (make-string-input-stream
                 (format nil "From: member@example.com~%To: soap@lists.example.com~%List-Id: <soap.lists.example.com>~%List-Post: <mailto:soap@lists.example.com>~%~%")))))
     (multiple-value-bind (addr mode)
-        (soap-service:reply-to-address hdrs)
+        (com.dwightaspencer.soap-example:reply-to-address hdrs)
       (is (string= "soap@lists.example.com" addr))
       (is (eq :list mode)))))
 
@@ -184,7 +184,7 @@
                (make-string-input-stream
                 (format nil "From: member@example.com~%To: soap@lists.example.com~%List-Id: <soap.lists.example.com>~%~%")))))
     (multiple-value-bind (addr mode)
-        (soap-service:reply-to-address hdrs)
+        (com.dwightaspencer.soap-example:reply-to-address hdrs)
       (is (string= "soap@lists.example.com" addr))
       (is (eq :list mode)))))
 
@@ -192,42 +192,42 @@
 
 (test SOAP-CT-1-soap-xml-accepted
   "application/soap+xml (RFC 3902) is the required Content-Type."
-  (is (soap-service:soap-content-type-p "application" "soap+xml"))
-  (is (not (soap-service:soap-content-type-p "text" "plain")))
-  (is (not (soap-service:soap-content-type-p nil nil))))
+  (is (com.dwightaspencer.soap-example:soap-content-type-p "application" "soap+xml"))
+  (is (not (com.dwightaspencer.soap-example:soap-content-type-p "text" "plain")))
+  (is (not (com.dwightaspencer.soap-example:soap-content-type-p nil nil))))
 
 ;;; ── SOAP envelope specs ──────────────────────────────────────────────────
 
 (test SOAP-1-parse-valid-envelope
   "A well-formed SOAP envelope is parsed without error."
-  (is (not (null (soap-service:parse-soap-envelope
+  (is (not (null (com.dwightaspencer.soap-example:parse-soap-envelope
                   (make-soap-envelope "Add" "intA" 3 "intB" 4))))))
 
 (test SOAP-2-extract-operation-name
   "The operation element's local name is correctly extracted."
-  (let ((op (soap-service:parse-soap-envelope
+  (let ((op (com.dwightaspencer.soap-example:parse-soap-envelope
              (make-soap-envelope "Add" "intA" 3 "intB" 4))))
-    (is (string= "Add" (soap-service:soap-operation-name op)))))
+    (is (string= "Add" (com.dwightaspencer.soap-example:soap-operation-name op)))))
 
 (test SOAP-3-extract-integer-params
   "intA and intB are correctly extracted as integers."
-  (let ((op (soap-service:parse-soap-envelope
+  (let ((op (com.dwightaspencer.soap-example:parse-soap-envelope
              (make-soap-envelope "Multiply" "intA" 6 "intB" 7))))
-    (is (= 6 (soap-service:soap-param "intA" op *calc-ns*)))
-    (is (= 7 (soap-service:soap-param "intB" op *calc-ns*)))))
+    (is (= 6 (com.dwightaspencer.soap-example:soap-param "intA" op *calc-ns*)))
+    (is (= 7 (com.dwightaspencer.soap-example:soap-param "intB" op *calc-ns*)))))
 
 (test SOAP-4-invalid-xml-signals-error
   "Non-XML body signals a condition."
   (signals error
-    (soap-service:parse-soap-envelope "this is not xml")))
+    (com.dwightaspencer.soap-example:parse-soap-envelope "this is not xml")))
 
 ;;; ── Calculator dispatch specs ────────────────────────────────────────────
 
 (test DISPATCH-1-add
   "Add(3, 4) = 7, no fault."
   (multiple-value-bind (body fault-p)
-      (soap-service:dispatch-soap
-       (soap-service:parse-soap-envelope
+      (com.dwightaspencer.soap-example:dispatch-soap
+       (com.dwightaspencer.soap-example:parse-soap-envelope
         (make-soap-envelope "Add" "intA" 3 "intB" 4)))
     (is (not fault-p))
     (is (search "AddResult" body))
@@ -236,8 +236,8 @@
 (test DISPATCH-2-subtract
   "Subtract(10, 3) = 7."
   (multiple-value-bind (body fault-p)
-      (soap-service:dispatch-soap
-       (soap-service:parse-soap-envelope
+      (com.dwightaspencer.soap-example:dispatch-soap
+       (com.dwightaspencer.soap-example:parse-soap-envelope
         (make-soap-envelope "Subtract" "intA" 10 "intB" 3)))
     (is (not fault-p))
     (is (search "SubtractResult" body))
@@ -246,8 +246,8 @@
 (test DISPATCH-3-multiply
   "Multiply(6, 7) = 42."
   (multiple-value-bind (body fault-p)
-      (soap-service:dispatch-soap
-       (soap-service:parse-soap-envelope
+      (com.dwightaspencer.soap-example:dispatch-soap
+       (com.dwightaspencer.soap-example:parse-soap-envelope
         (make-soap-envelope "Multiply" "intA" 6 "intB" 7)))
     (is (not fault-p))
     (is (search "MultiplyResult" body))
@@ -256,8 +256,8 @@
 (test DISPATCH-4-divide
   "Divide(42, 6) = 7."
   (multiple-value-bind (body fault-p)
-      (soap-service:dispatch-soap
-       (soap-service:parse-soap-envelope
+      (com.dwightaspencer.soap-example:dispatch-soap
+       (com.dwightaspencer.soap-example:parse-soap-envelope
         (make-soap-envelope "Divide" "intA" 42 "intB" 6)))
     (is (not fault-p))
     (is (search "DivideResult" body))
@@ -266,8 +266,8 @@
 (test DISPATCH-5-divide-by-zero-returns-fault
   "Divide(1, 0) returns a soap:Fault."
   (multiple-value-bind (body fault-p)
-      (soap-service:dispatch-soap
-       (soap-service:parse-soap-envelope
+      (com.dwightaspencer.soap-example:dispatch-soap
+       (com.dwightaspencer.soap-example:parse-soap-envelope
         (make-soap-envelope "Divide" "intA" 1 "intB" 0)))
     (is (eq t fault-p))
     (is (search "Fault" body))
@@ -276,8 +276,8 @@
 (test DISPATCH-6-unknown-operation-returns-fault
   "An unknown operation returns a soap:Fault."
   (multiple-value-bind (body fault-p)
-      (soap-service:dispatch-soap
-       (soap-service:parse-soap-envelope
+      (com.dwightaspencer.soap-example:dispatch-soap
+       (com.dwightaspencer.soap-example:parse-soap-envelope
         (make-soap-envelope "Sqrt" "intA" 9)))
     (is (eq t fault-p))
     (is (search "Fault" body))))
@@ -285,8 +285,8 @@
 (test DISPATCH-7-non-integer-param-returns-fault
   "Non-integer parameters return a soap:Fault."
   (multiple-value-bind (body fault-p)
-      (soap-service:dispatch-soap
-       (soap-service:parse-soap-envelope
+      (com.dwightaspencer.soap-example:dispatch-soap
+       (com.dwightaspencer.soap-example:parse-soap-envelope
         (make-soap-envelope "Add" "intA" "foo" "intB" 4)))
     (is (eq t fault-p))
     (is (search "Fault" body))))
@@ -295,13 +295,13 @@
 
 (test BUILD-1-envelope-has-soap-namespace
   "Built envelope declares the SOAP 1.2 envelope namespace."
-  (let ((env (soap-service:build-soap-envelope
-              (soap-service:build-result "Add" "AddResult" 7))))
+  (let ((env (com.dwightaspencer.soap-example:build-soap-envelope
+              (com.dwightaspencer.soap-example:build-result "Add" "AddResult" 7))))
     (is (search "schemas.xmlsoap.org/soap/envelope" env))))
 
 (test BUILD-2-envelope-accepts-extra-namespaces
   "build-soap-envelope :extra-namespaces injects caller-supplied ns declarations."
-  (let ((env (soap-service:build-soap-envelope
+  (let ((env (com.dwightaspencer.soap-example:build-soap-envelope
               "body"
               :extra-namespaces '(("cal" . "http://example.com/soap/calculator/")))))
     (is (search "example.com/soap/calculator" env))
@@ -309,13 +309,13 @@
 
 (test BUILD-3-fault-contains-code-and-reason
   "Built fault contains Code/Reason elements."
-  (let ((fault (soap-service:build-fault "Sender" "Test reason" "detail")))
+  (let ((fault (com.dwightaspencer.soap-example:build-fault "Sender" "Test reason" "detail")))
     (is (search "Sender"      fault))
     (is (search "Test reason" fault))))
 
 (test BUILD-4-result-contains-value-and-prefix
   "build-result uses the supplied namespace prefix."
-  (let ((result (soap-service:build-result "Multiply" "MultiplyResult" 42 "cal")))
+  (let ((result (com.dwightaspencer.soap-example:build-result "Multiply" "MultiplyResult" 42 "cal")))
     (is (search "42"            result))
     (is (search "MultiplyResult" result))
     (is (search "cal:Multiply"   result))))
@@ -331,7 +331,7 @@
          (cur  (merge-pathnames "cur/" mdir))
          (captured-op nil)
          (custom-handler (lambda (op)
-                           (setf captured-op (soap-service:soap-operation-name op))
+                           (setf captured-op (com.dwightaspencer.soap-example:soap-operation-name op))
                            (values "<custom>reply</custom>" nil))))
     (ensure-directories-exist new)
     (ensure-directories-exist cur)
@@ -344,16 +344,16 @@
     ;; Stub sendmail so we don't actually send
     (let ((old-sendmail (sb-posix:getenv "MLISP_SENDMAIL")))
       (sb-posix:setenv "MLISP_SENDMAIL" "/bin/true" 1)
-      (soap-service:process-batch (namestring mdir) "svc@example.com"
+      (com.dwightaspencer.soap-example:process-batch (namestring mdir) "svc@example.com"
                                   :handler custom-handler
-                                  :envelope-builder #'soap-service:build-soap-envelope)
+                                  :envelope-builder #'com.dwightaspencer.soap-example:build-soap-envelope)
       (if old-sendmail
           (sb-posix:setenv "MLISP_SENDMAIL" old-sendmail 1)
           (sb-posix:unsetenv "MLISP_SENDMAIL")))
     ;; Custom handler was called with the correct operation
     (is (string= "Ping" captured-op))
     ;; Message was marked read
-    (is (null (soap-service:maildir-new (namestring mdir))))
+    (is (null (com.dwightaspencer.soap-example:maildir-new (namestring mdir))))
     (uiop:delete-directory-tree mdir :validate t)))
 
 ;;; ── Maildir specs ────────────────────────────────────────────────────────
@@ -366,7 +366,7 @@
     (with-open-file (f (merge-pathnames "test.eml" new)
                        :direction :output :if-does-not-exist :create)
       (write-string "From: a@b.com\n\ntest\n" f))
-    (let ((files (soap-service:maildir-new (namestring mdir))))
+    (let ((files (com.dwightaspencer.soap-example:maildir-new (namestring mdir))))
       (is (= 1 (length files))))
     (uiop:delete-directory-tree mdir :validate t)))
 
@@ -380,7 +380,7 @@
     (let ((msg (merge-pathnames "test123.eml" new)))
       (with-open-file (f msg :direction :output :if-does-not-exist :create)
         (write-string "From: a@b.com\n\ntest\n" f))
-      (soap-service:mark-read msg)
+      (com.dwightaspencer.soap-example:mark-read msg)
       (is (null (probe-file msg)))
       (is (probe-file (merge-pathnames "test123.eml:2," cur))))
     (uiop:delete-directory-tree mdir :validate t)))
@@ -390,15 +390,56 @@
   (let* ((mdir (merge-pathnames "Maildir/" (uiop:temporary-directory)))
          (new  (merge-pathnames "new/" mdir)))
     (ensure-directories-exist new)
-    (is (null (soap-service:maildir-new (namestring mdir))))
+    (is (null (com.dwightaspencer.soap-example:maildir-new (namestring mdir))))
     (uiop:delete-directory-tree mdir :validate t)))
+
+;;; ── Email security header specs (RFC 7601 Authentication-Results) ────────
+;;; These functions surface MTA/MDA authentication verdicts recorded in
+;;; headers by the mail stack (Postfix, OpenDKIM, SPF daemon, etc.).
+;;; The library reads verdicts -- it does not perform cryptographic checks.
+
+(test AUTH-1-authentication-results-p-detected
+  "authentication-results-p returns T when Authentication-Results is present."
+  (let ((hdrs (mime:parse-headers
+               (make-string-input-stream
+                (format nil "Authentication-Results: mx.example.com; dkim=pass~%~%")))))
+    (is (com.dwightaspencer.soap-example:authentication-results-p hdrs))))
+
+(test AUTH-2-dkim-pass-p-passes
+  "dkim-pass-p returns T when Authentication-Results reports dkim=pass."
+  (let ((hdrs (mime:parse-headers
+               (make-string-input-stream
+                (format nil "Authentication-Results: mx.example.com; dkim=pass header.d=example.com; spf=pass~%~%")))))
+    (is (com.dwightaspencer.soap-example:dkim-pass-p hdrs))
+    (is (com.dwightaspencer.soap-example:spf-pass-p  hdrs))))
+
+(test AUTH-3-dmarc-pass-p
+  "dmarc-pass-p returns T when Authentication-Results reports dmarc=pass."
+  (let ((hdrs (mime:parse-headers
+               (make-string-input-stream
+                (format nil "Authentication-Results: mx.example.com; dmarc=pass~%~%")))))
+    (is (com.dwightaspencer.soap-example:dmarc-pass-p hdrs))))
+
+(test AUTH-4-spf-pass-via-received-spf
+  "spf-pass-p checks Received-SPF: header when Authentication-Results is absent."
+  (let ((hdrs (mime:parse-headers
+               (make-string-input-stream
+                (format nil "Received-SPF: pass (example.com: domain designates 1.2.3.4)~%~%")))))
+    (is (com.dwightaspencer.soap-example:spf-pass-p hdrs))))
+
+(test AUTH-5-failed-auth-returns-nil
+  "dkim-pass-p returns NIL when DKIM verification failed."
+  (let ((hdrs (mime:parse-headers
+               (make-string-input-stream
+                (format nil "Authentication-Results: mx.example.com; dkim=fail~%~%")))))
+    (is (not (com.dwightaspencer.soap-example:dkim-pass-p hdrs)))))
 
 ;;; ── Run suite ────────────────────────────────────────────────────────────
 
-(let ((results (run 'soap-service-suite)))
+(let ((results (run 'soap-example-suite)))
   (explain! results)
   (let ((ok (every #'fiveam::test-passed-p results)))
     (if (and (boundp 'cl-user::*soap-service-test-no-exit*)
              (symbol-value 'cl-user::*soap-service-test-no-exit*))
-        (unless ok (error "soap-service-suite: FiveAM tests failed"))
+        (unless ok (error "soap-example-suite: FiveAM tests failed"))
         (sb-ext:exit :code (if ok 0 1)))))

@@ -7,7 +7,7 @@
 ;;;;   Content-Type: = application/soap+xml (RFC 3902, REQUIRED)
 ;;;;   X-Loop:       = service address (loop guard)
 
-(in-package #:soap-service)
+(in-package #:com.dwightaspencer.soap-example)
 
 (defun getenv (name &optional default)
   (or (sb-ext:posix-getenv name) default))

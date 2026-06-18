@@ -11,7 +11,7 @@
 ;;;; The transport layer (src/soap.lisp, src/routing.lisp, src/maildir.lisp,
 ;;;; src/reply.lisp, src/main.lisp) has no dependency on this file.
 
-(in-package #:soap-service)
+(in-package #:com.dwightaspencer.soap-example)
 
 ;;; Calculator service namespace -- owned by this example, not the transport.
 ;;; The transport passes it to build-soap-envelope as :extra-namespaces.

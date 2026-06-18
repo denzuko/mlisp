@@ -16,7 +16,7 @@
 ;;;; A future library would expose process-batch directly; callers supply
 ;;;; their own :handler and :envelope-builder.
 
-(in-package #:soap-service)
+(in-package #:com.dwightaspencer.soap-example)
 
 (defun getenv (name &optional default)
   (or (sb-ext:posix-getenv name) default))

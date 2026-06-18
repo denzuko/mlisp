@@ -4,7 +4,7 @@
 ;;;; mark-read    -- move new/ -> cur/ with :2, flags (Maildir spec)
 ;;;; slurp-file   -- read entire file as string
 
-(in-package #:soap-service)
+(in-package #:com.dwightaspencer.soap-example)
 
 (defun ensure-trailing-slash (str)
   (if (and (> (length str) 0)

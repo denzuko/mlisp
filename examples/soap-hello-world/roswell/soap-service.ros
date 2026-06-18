@@ -39,7 +39,7 @@ exec ros -Q -- $0 "$@"
                              (directory-namestring
                               (truename *load-pathname*))))))
         asdf:*central-registry*)
-  (asdf:load-system :soap-service)
-  (funcall (find-symbol "MAIN" (find-package :soap-service))))
+  (asdf:load-system :com.dwightaspencer.soap-example/service)
+  (funcall (find-symbol "MAIN" (find-package :com.dwightaspencer.soap-example))))
 
 ;;; vim: set ft=lisp lisp:

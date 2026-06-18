@@ -3,7 +3,7 @@
 ;;;; Uses xmls for namespace-aware XML parsing.
 ;;;; Media type: application/soap+xml per RFC 3902 (REQUIRED by W3C spec).
 
-(in-package #:soap-service)
+(in-package #:com.dwightaspencer.soap-example)
 
 (defun trim (str)
   (string-trim '(#\Space #\Tab #\Return #\Newline) (or str "")))

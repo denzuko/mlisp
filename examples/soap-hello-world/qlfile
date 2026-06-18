@@ -1,14 +1,16 @@
-; qlfile -- qlot dependency manifest for soap-hello-world
+; qlfile -- qlot dependency manifest for com.dwightaspencer.soap-example
 ; Run: qlot install
 ; See: https://github.com/fukamachi/qlot
 
 ; RFC 2045 MIME / RFC 5322 message parsing
-; parse-mime: string/stream -> MIME object (content-type, content-subtype, content)
-; parse-headers: stream -> alist of (:KEYWORD . "value") pairs
 ql cl-mime
 
-; XML parsing for SOAP 1.2 envelope (namespace-aware, no external process)
+; XML parsing for SOAP 1.2 envelope
 ql xmls
 
 ; Primary BDD/unit testing framework
 ql fiveam
+
+; Documentation (com.dwightaspencer.soap-example/doc)
+; 40ants-doc is not in the standard Quicklisp dist -- use ultralisp directive
+ultralisp 40ants-doc

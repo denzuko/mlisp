@@ -1,16 +1,28 @@
-;;;; src/package.lisp -- package definition for soap-service
+;;;; src/package.lisp -- package definition for com.dwightaspencer.soap-example
+;;;;
+;;;; Package hierarchy matches system hierarchy:
+;;;;   com.dwightaspencer.soap-example  -- the single runtime package
+;;;;     (all systems share one package; the system split is for dependency
+;;;;      management and publication boundaries, not runtime namespacing)
 ;;;;
 ;;;; Depends on cl-mime for RFC 2045/5322 parsing:
-;;;;   mime:parse-headers stream -> alist of (:KEYWORD . "value")
+;;;;   mime:parse-headers stream -> (:KEYWORD . "value") alist
 ;;;;   mime:parse-mime    string -> MIME object
 ;;;;   mime:content-type, mime:content-subtype, mime:content
-;;;;
-;;;; src/rfc5322.lisp is removed -- cl-mime handles headers and body.
 
-(defpackage #:soap-service
+(defpackage #:com.dwightaspencer.soap-example
   (:use #:cl #:xmls)
+  (:nicknames #:soap-example)           ; short alias for interactive use
   (:export
-   ;; ── Transport layer (generic, publishable) ───────────────────────────
+   ;; ── Transport layer: com.dwightaspencer.soap-example/soap12-email ────
+   ;;
+   ;; Email security header inspection (RFC 7601, DKIM, SPF, DMARC)
+   #:check-authentication-results      ; parse Authentication-Results
+   #:dkim-pass-p                       ; DKIM signature verified?
+   #:spf-pass-p                        ; SPF check passed?
+   #:dmarc-pass-p                      ; DMARC policy passed?
+   #:authentication-results-p          ; any auth header present?
+   ;;
    ;; Loop guard
    #:x-loop-p
    ;; List detection (RFC 2369 / 2919)
@@ -34,13 +46,18 @@
    #:send-reply
    ;; Generic batch processor (inject your own handler + envelope-builder)
    #:process-batch
-   ;; ── Example layer (calculator service, not part of generic library) ──
-   ;; Dispatcher -- implement this protocol for your own service
+   ;;
+   ;; ── Service layer: com.dwightaspencer.soap-example/service ───────────
+   ;; Calculator example -- implements the handler protocol
+   ;; (replace dispatch-soap + calc-envelope for your own service)
    #:dispatch-soap
-   ;; Namespace parameters -- owned by the example, not the transport
    #:*calc-ns*
    #:*calc-prefix*
-   ;; Convenience envelope wrapper for the calculator namespace
    #:calc-envelope
-   ;; Entry point (wired to calculator example defaults)
+   ;; Entry point (wired to calculator defaults)
    #:main))
+
+;;; Backward-compatible alias for systems that loaded the old "soap-service" name
+(defpackage #:soap-service
+  (:use)
+  (:nicknames #:soap-service))
