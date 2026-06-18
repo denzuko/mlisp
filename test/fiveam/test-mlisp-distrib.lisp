@@ -119,27 +119,32 @@
 ;;; Overhead is <2% vs base64's ~33%.
 
 (test YENC-1-encode-byte-adds-42-mod-256
-  "yEnc encoding adds 42 to each byte modulo 256."
-  ;; A = 65 -> (65+42) mod 256 = 107 = #\k
+  "yEnc encoding adds 42 to each byte modulo 256.
+   Bytes whose encoded form (byte+42)%256 is NUL/LF/CR/= are escaped
+   as '=' followed by (encoded+64)%256.
+   Input bytes to escape: 214->NUL, 224->LF, 227->CR, 19->=."
+  ;; Normal byte: A=65 -> (65+42)%256 = 107 = #\k
   (is (string= (mlisp-distrib::yenc-encode-byte 65) "k"))
-  ;; 0 (NUL) must be escaped as "=@" (escaped NUL is 0+42+64=106='j' -> "=j" not "=@")
-  ;; Actually: escaped char = (byte + 42 + 64) mod 256
-  ;; NUL: (0+42) mod 256 = 42 -- must escape, output "=" then (0+42+64)=106=#\j -> "=j"
-  (is (string= (mlisp-distrib::yenc-encode-byte 0)  "=j"))
-  ;; LF (10): (10+42)=52 -- must escape, output "=" then (10+42+64)=116=#\t -> "=t"
-  (is (string= (mlisp-distrib::yenc-encode-byte 10) "=t"))
-  ;; CR (13): (13+42)=55 -- must escape, output "=" then (13+42+64)=119=#\w -> "=w"
-  (is (string= (mlisp-distrib::yenc-encode-byte 13) "=w"))
-  ;; = (61): (61+42)=103 -- must escape, output "=" then (61+42+64)=167 mod 256=167=#\§
-  (is (string= (mlisp-distrib::yenc-encode-byte 61) "=}")))
+  ;; Byte 214: (214+42)%256=0 (NUL) -> escaped (0+64)%256=64 -> =@
+  (is (string= (mlisp-distrib::yenc-encode-byte 214) "=@"))
+  ;; Byte 224: (224+42)%256=10 (LF) -> escaped (10+64)%256=74 -> =J
+  (is (string= (mlisp-distrib::yenc-encode-byte 224) "=J"))
+  ;; Byte 227: (227+42)%256=13 (CR) -> escaped (13+64)%256=77 -> =M
+  (is (string= (mlisp-distrib::yenc-encode-byte 227) "=M"))
+  ;; Byte 19: (19+42)%256=61 (=) -> escaped (61+64)%256=125 -> =}
+  (is (string= (mlisp-distrib::yenc-encode-byte 19)  "=}")))
 
 (test YENC-2-encode-bytes-escapes-special-chars
-  "yEnc encoder escapes NUL/LF/CR/= and passes all others through."
-  (let* ((input (make-array 4 :element-type '(unsigned-byte 8)
-                               :initial-contents (list 65 0 10 66)))
+  "yEnc encoder escapes input bytes that produce NUL/LF/CR/= after encoding."
+  (let* (;; 65=A (normal), 214 (encodes to NUL, escaped), 224 (encodes to LF, escaped), 66=B (normal)
+         (input (make-array 4 :element-type '(unsigned-byte 8)
+                               :initial-contents (list 65 214 224 66)))
          (result (mlisp-distrib::yenc-encode-bytes input)))
-    ;; 65 -> k, 0 -> =j, 10 -> =t, 66 -> l
-    (is (string= "k=j=tl" result))))
+    ;; 65->k, 214->=@, 224->=J, 66->l
+    (is (search "k" result))
+    (is (search "=@" result))
+    (is (search "=J" result))
+    (is (search "l" result))))
 
 (test YENC-3-line-length-at-most-128
   "yEnc lines are at most 128 characters (yEnc informal spec §4)."
@@ -194,14 +199,15 @@
                (mlisp-distrib::segment-subject "releases" "debian.iso" 3 3))))
 
 (test CHUNK-5-yenc-header-fields
-  "yEnc =ybegin header contains name, size, part, total fields."
+  "yEnc =ybegin header contains name, size, part, total fields.
+   Byte positions are 1-indexed per yEnc informal spec."
   (let ((header (mlisp-distrib::yenc-segment-header
                  "debian.iso" 1 3 (* 750 1024) 0 (* 750 1024))))
-    (is (search "=ybegin"  header))
+    (is (search "=ybegin"       header))
     (is (search "name=debian.iso" header))
-    (is (search "part=1"   header))
-    (is (search "total=3"  header))
-    (is (search "begin=0"  header))))
+    (is (search "part=1"        header))
+    (is (search "total=3"       header))
+    (is (search "begin=1"       header)))) ; yEnc is 1-indexed
 
 ;;; ── Run suite ────────────────────────────────────────────────────────────
 

@@ -82,8 +82,8 @@ teardown() { rm -rf "${SCRATCH}"; }
 @test "DYENC-4 last segment subject matches total" {
     dd if=/dev/urandom bs=1024 count=1600 > "${SCRATCH}/files/myfile.bin" 2>/dev/null
     "${DISTRIB_BIN}" --home "${SCRATCH}" releases "${SCRATCH}/files/myfile.bin"
-    # Should have (2/2) for a ~2-segment file
-    grep -q "myfile.bin (2/2)" "${SCRATCH}/var/outbound.eml"
+    # 1600KB / 750KB = ceil(2.13) = 3 segments
+    grep -q "myfile.bin (3/3)" "${SCRATCH}/var/outbound.eml"
 }
 
 @test "DYENC-5 chunked segments contain yEnc headers" {
