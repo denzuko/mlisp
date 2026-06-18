@@ -15,6 +15,9 @@
 
   (pushnew (truename here) asdf:*central-registry* :test #'equal)
 
+  ;; Force recompilation -- prevents stale cached fasls on CI.
+  (asdf:clear-output-translations)
+
   ;; Treat warnings as warnings, not errors (style warnings are non-fatal)
   (setf asdf:*compile-file-failure-behaviour* :warn)
 

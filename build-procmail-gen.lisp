@@ -10,6 +10,10 @@
   (when (probe-file ql-setup) (load ql-setup))
 
   (pushnew (truename here) asdf:*central-registry* :test #'equal)
+
+  ;; Force recompilation -- prevents stale cached fasls on CI.
+  (asdf:clear-output-translations)
+
   (setf asdf:*compile-file-failure-behaviour* :warn)
 
   (handler-case

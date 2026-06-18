@@ -14,6 +14,10 @@
 
   (pushnew (truename here) asdf:*central-registry* :test #'equal)
 
+  ;; Force recompilation -- prevents stale cached fasls from a previous
+  ;; build in the same CI session from masking source changes.
+  (asdf:clear-output-translations)
+
   (setf asdf:*compile-file-failure-behaviour* :warn)
 
   (handler-case
