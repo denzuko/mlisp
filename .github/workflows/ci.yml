@@ -77,7 +77,13 @@ jobs:
                --eval '(ql:quickload :fiveam :silent t)'
 
       - name: Build all binaries (including neural)
-        run: make build-all
+        run: |
+          # Remove pre-built binaries to force a clean rebuild.
+          # This prevents stale SBCL-compiled binaries from a previous
+          # CI run being reused when source files have changed.
+          rm -f bin/mlisp bin/mlisp-admin bin/mlisp-bugs \
+                bin/mlisp-distrib bin/mlisp-procmail-gen
+          make build-all
 
       - name: Verify binaries
         run: |
