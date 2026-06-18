@@ -1,0 +1,45 @@
+#!/bin/sh
+#|-*- mode:lisp -*-|#
+#|
+exec ros -Q -- $0 "$@"
+|#
+;;;; roswell/soap-service.ros
+;;;;
+;;;; Roswell entry point for the SOAP 1.2 Email Binding microservice.
+;;;;
+;;;; Batch processes all unread messages in $MAILDIR/new/,
+;;;; dispatches SOAP operations, replies per smart address discovery.
+;;;;
+;;;; Usage (via cron, every 5 minutes):
+;;;;   */5 * * * * ros /path/to/roswell/soap-service.ros
+;;;;
+;;;; Or compiled to a binary:
+;;;;   ros build roswell/soap-service.ros
+;;;;   ./soap-service
+;;;;
+;;;; Environment:
+;;;;   MAILDIR              Maildir root (default: ~/Maildir)
+;;;;   SOAP_SERVICE_ADDRESS Service From:/X-Loop: address
+;;;;                        (default: soap-calc@example.com)
+;;;;   MLISP_SENDMAIL       sendmail binary (default: /usr/sbin/sendmail)
+
+(ros:include "package")
+
+(defpackage #:ros.script.soap-service
+  (:use #:cl))
+
+(in-package #:ros.script.soap-service)
+
+(defun main (&rest argv)
+  (declare (ignore argv))
+  (push (pathname
+         (namestring
+          (truename
+           (merge-pathnames "../"
+                             (directory-namestring
+                              (truename *load-pathname*))))))
+        asdf:*central-registry*)
+  (asdf:load-system :com.dwightaspencer.soap-example/service)
+  (funcall (find-symbol "MAIN" (find-package :com.dwightaspencer.soap-example))))
+
+;;; vim: set ft=lisp lisp:
