@@ -1,0 +1,43 @@
+#!/bin/sh
+#|-*- mode:lisp -*-|#
+#|
+exec ros -Q -- $0 "$@"
+|#
+;;;; roswell/nzb-indexer.ros
+;;;;
+;;;; Batch processes $MAILDIR/new/, indexes distrib segments into
+;;;; named releases, serves get-nzb commands, announces completions.
+;;;;
+;;;; Cron schedule:
+;;;;   */5 * * * * ros /path/to/roswell/nzb-indexer.ros
+;;;;
+;;;; Environment:
+;;;;   MAILDIR              Maildir root (default: ~/Maildir)
+;;;;   NZB_SERVICE_ADDRESS  Service From:/X-Loop: address
+;;;;                        (default: distrib-nzb@lists.example.com)
+;;;;   NZB_ANNOUNCE_ADDRESS Announce list address
+;;;;                        (default: releases-announce@lists.example.com)
+;;;;   NZB_INDEX_PATH       Path to release index sexp file
+;;;;                        (default: ~/.nzb-index.sexp)
+;;;;   MLISP_SENDMAIL       sendmail binary (default: /usr/sbin/sendmail)
+
+(ros:include "package")
+
+(defpackage #:ros.script.nzb-indexer
+  (:use #:cl))
+
+(in-package #:ros.script.nzb-indexer)
+
+(defun main (&rest argv)
+  (declare (ignore argv))
+  (push (pathname
+         (namestring
+          (truename
+           (merge-pathnames "../"
+                             (directory-namestring
+                              (truename *load-pathname*))))))
+        asdf:*central-registry*)
+  (asdf:load-system :com.dwightaspencer.nzb-indexer/service)
+  (funcall (find-symbol "MAIN" (find-package :com.dwightaspencer.nzb-indexer))))
+
+;;; vim: set ft=lisp lisp:

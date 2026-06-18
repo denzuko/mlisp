@@ -10,6 +10,18 @@
   (when (probe-file ql-setup) (load ql-setup))
 
   (pushnew (truename here) asdf:*central-registry* :test #'equal)
+  ;; Force recompilation by deleting the ASDF output cache for this project.
+  ;; asdf:clear-output-translations resets path mappings but leaves compiled
+  ;; fasls in place; explicit deletion ensures source changes always take effect.
+  (let ((cache (merge-pathnames
+                (make-pathname :directory
+                               (list :relative (format nil "~A-~A-~A"
+                                                       (lisp-implementation-type)
+                                                       (lisp-implementation-version)
+                                                       (machine-type))))
+                (uiop:xdg-cache-home "common-lisp/"))))
+    (when (probe-file cache)
+      (uiop:delete-directory-tree cache :validate t :if-does-not-exist :ignore)))
   (setf asdf:*compile-file-failure-behaviour* :warn)
 
   (handler-case
