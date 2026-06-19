@@ -99,7 +99,7 @@ control at the list level. No additional auth infrastructure required.
   that stateful workflows (bug lifecycle: submit → append → close) are
   expressible over email without a database-backed web service.
 
-- **mlisp (Da Planet Security, 2024)**: Reimplements the full stack in
+- **mlisp (2024)**: Reimplements the full stack in
   Common Lisp as six self-contained SBCL binaries. Adds: per-message
   filter pipeline, neural.sh integration, yEnc/PAR2 binary distribution,
   microservice composability via the subscriber model.
@@ -182,9 +182,8 @@ The architecture extends naturally to:
 - **Anonymous remailers**: Type I (Cypherpunk) and Type II (Mixmaster)
   remailers are already email-based; mlisp provides the list management
   layer at the exit node
-- **RT4-TWG standardisation**: This architecture proposed as a
-  privacy-respecting infrastructure standard for civil liberties
-  organisations (Restore The Fourth Technology Working Group)
+- **Standardisation**: This architecture is a candidate for privacy-respecting
+  infrastructure standards in civil liberties and activist organisations
 
 ## References
 

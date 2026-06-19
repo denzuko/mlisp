@@ -113,20 +113,20 @@ ask_cmd() {
     [ -s "${SCRATCH}/var/outbound.eml" ]
 }
 
-@test "ASK-2 ask with neural configured calls neural and returns its output" {
-    # Stub neural binary
+@test "ASK-2 ask with ask-filter configured calls filter and returns its output" {
+    # Stub filter program that answers the question
     printf '#!/bin/sh\ncat > /dev/null\necho "You can subscribe by sending email with Subject: subscribe"\n' \
-      > "${SCRATCH}/bin/neural"
-    chmod +x "${SCRATCH}/bin/neural"
+      > "${SCRATCH}/bin/ask-filter"
+    chmod +x "${SCRATCH}/bin/ask-filter"
     "${ADMIN_BIN}" --home "${SCRATCH}" set-option bugs-request \
-      ai-ask "${SCRATCH}/bin/neural" 2>/dev/null
+      ask-filter "${SCRATCH}/bin/ask-filter" 2>/dev/null
 
-    MLISP_NEURAL_PATH="${SCRATCH}/bin/neural" PATH="${SCRATCH}/bin:${PATH}" ask_cmd "how do I subscribe"
+    ask_cmd "how do I subscribe"
     grep -qi "subscribe" "${SCRATCH}/var/outbound.eml"
 }
 
-@test "ASK-3 ask is off by default (no ai-ask option set)" {
-    # With no ai-ask configured, ask should still reply with a helpful fallback
+@test "ASK-3 ask falls back to list info when no pre-filter configured" {
+    # With no pre-filter configured, ask should reply with a helpful fallback
     # (list info + manpage hint), not an error or silence
     ask_cmd "what commands are available"
     [ -s "${SCRATCH}/var/outbound.eml" ]

@@ -364,37 +364,39 @@
                      result)))
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
-;;; #127: ASK command — subscriber FAQ / neural.sh query
+;;; #127: ASK command — subscriber FAQ / filter-based query
 ;;; ─────────────────────────────────────────────────────────────────────────────
 (defun handle-ask-command (list-id from-addr body-lines)
   "Handle a subscriber 'ask <question>' command.
-   If the list has an :ai-ask option configured, pipe the question through
-   that command (typically a neural.sh invocation) and reply with its output.
-   Falls back to a helpful plain-text reply (list info + commands) when
-   :ai-ask is not configured or the command produces no output.
-   Opt-in per-list: mlisp-admin set-option <list-id> ai-ask <neural-cmd>"
+   If the list has an :ask-filter configured, pipes the question through
+   that filter program and replies with its stdout output. The filter
+   is any program that reads the question on stdin and writes an answer
+   to stdout: a neural.sh invocation, a lookup script, a man page
+   formatter, whatever the operator configures. This reuses the same
+   pipe-through-command mechanism as bugs-report --summarize.
+   Falls back to a plain-text reply (list info + command reference) when
+   no :ask-filter is configured or the filter produces no output.
+   Configure: mlisp-admin set-option <list-id> ask-filter <program>"
   (let* ((lst      (find-list list-id))
-         (ai-cmd   (when lst (getf lst :ai-ask)))
-         ;; Extract the question: strip leading 'ask ' from first body line
-         ;; or from Subject if body is empty
+         (ask-filt (when lst (getf lst :ask-filter)))
          (question (let ((first (string-trim '(#\Space #\Tab #\Return #\Newline)
                                               (or (first body-lines) ""))))
                      (if (and (> (length first) 4)
                               (string-equal "ask " (subseq first 0 4)))
                          (subseq first 4)
                          first))))
-    (if ai-cmd
-        ;; ── AI-assisted path ─────────────────────────────────────────────
+    (if ask-filt
+        ;; ── Filter-based path ────────────────────────────────────────────
+        ;; Reuse pipe-through-command: same mechanism as bugs-report --summarize.
+        ;; The question is passed on stdin; the filter writes the answer to stdout.
         (multiple-value-bind (answer exit-code)
-            (pipe-through-command ai-cmd question)
+            (pipe-through-command ask-filt question)
           (let ((answer (string-trim '(#\Space #\Tab #\Newline #\Return)
                                       (or answer ""))))
             (if (and (= exit-code 0) (> (length answer) 0))
                 (reply-to-sender list-id from-addr
                                  (format nil "Re: ask ~A" question)
                                  answer)
-                ;; neural produced no output (e.g. unreachable endpoint)
-                ;; fall through to the info fallback below
                 (handle-ask-fallback list-id from-addr question))))
         ;; ── Fallback: list info + command list ───────────────────────────
         (handle-ask-fallback list-id from-addr question))))

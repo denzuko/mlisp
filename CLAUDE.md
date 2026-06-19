@@ -202,29 +202,12 @@ headers (RFC 7601) — it does not perform cryptographic verification.
 
 ## Future Roadmap (not yet started)
 
-**Q3 2026 (after Watchers series release):**
+**Q3 2026:**
 - Anonymous side-channel networks over SMTP
-- P2P mesh networks (FidoNet-style store-and-forward)  
+- P2P mesh networks (FidoNet-style store-and-forward)
 - Anonymous remailers (Type I/II) with mlisp as list management layer
-
-**Intended audiences:**
-- RT4-Albany (privacy advocacy)
-- hack.dapla.net (hacker community)
-- RT4-TWG (Technology Working Group standard proposal)
-- Books/articles building on this work (Watchers series successor volumes)
 
 **#99 (parked):** mlisp-mailman subsystem suite — evaluate when there
 is a concrete user requirement.
 
 ---
-
-## Deployment Context
-
-Da Planet Security MSSP, Albany NY. mlisp runs on:
-- klaxon.dapla.net (Da Planet Radio / Icecast)
-- gorkon.dapla.net (IRC, mlisp lists)
-- Subscribers include Albany 2600, HPR contributors, aNONradio community
-
-Channel partners with relevant toolchain context: Cloudflare (edge,
-DNS), Postfix (MTA), fetchmail/procmail (delivery), SBCL/Quicklisp/qlot
-(runtime), Roswell (SBCL version management).

@@ -1439,8 +1439,11 @@ Config resolution order:
      pre-filter  <path>   Filter run before bug submission.
                           exit 0=pass  1=reject  3=discard
                           Space-separated list for a filter chain.
+                          Any program is valid here, including neural.sh
+                          invocations for triage, moderation, or enrichment.
      post-filter <path>   Filter run after archival, before distribution.
-     ai-ask      <cmd>    Command for subscriber ask queries (neural.sh etc.)."
+                          Same exit-code contract and program flexibility
+                          as pre-filter."
   (mlisp:load-state)
   (handler-case
       (let ((kw (intern (string-upcase key) :keyword)))
