@@ -1432,6 +1432,25 @@ Config resolution order:
                      summarize)))))))
   0)
 
+(define-admin-cmd bugs-set-option (pkg key value) "<pkg> <key> <value>"
+  "Set a configuration option on the bugs package PKG.
+
+   Supported keys:
+     pre-filter  <path>   Filter run before bug submission.
+                          exit 0=pass  1=reject  3=discard
+                          Space-separated list for a filter chain.
+     post-filter <path>   Filter run after archival, before distribution.
+     ai-ask      <cmd>    Command for subscriber ask queries (neural.sh etc.)."
+  (mlisp:load-state)
+  (handler-case
+      (let ((kw (intern (string-upcase key) :keyword)))
+        (mlisp:bugs-set-option pkg kw value)
+        (format t "Set ~A:~A = ~S~%" pkg key value))
+    (error (e)
+      (format *error-output* "mlisp-admin: bugs-set-option: ~A~%" e)
+      (return-from cmd-bugs-set-option 1)))
+  0)
+
 (define-admin-cmd+ install-bugs-procmail (pkg) (("--dry-run" :boolean)) "<pkg>"
   (let* ((home     (mlisp:mlisp-home))
          (bugs-bin (merge-pathnames "bin/mlisp-bugs" home)))
@@ -1529,6 +1548,7 @@ Config resolution order:
    (cons "bugs-list" #'cmd-bugs-list)
    (cons "bugs-show" #'cmd-bugs-show)
    (cons "bugs-report" #'cmd-bugs-report)
+   (cons "bugs-set-option" #'cmd-bugs-set-option)
    (cons "install-bugs-procmail" #'cmd-install-bugs-procmail)
    (cons "hatch" #'cmd-hatch)
   ))

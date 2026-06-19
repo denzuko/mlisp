@@ -31,6 +31,11 @@
     (let* ((subj-lc       (string-downcase (or subject "")))
            (first-body-lc (string-downcase (or first-body ""))))
     (cond
+      ;; ASK — must come first: "ask how do I subscribe" should route to :ask
+      ;; not fall through to :subscribe or :unsubscribe patterns
+      ((or (search "ask " subj-lc) (search "ask " first-body-lc)
+           (string= subj-lc "ask") (string= first-body-lc "ask"))
+       :ask)
       ((or (funcall unsub-p subject)
            (funcall unsub-p first-body))
        :unsubscribe)

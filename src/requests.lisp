@@ -363,3 +363,61 @@
                      (format nil "Files: ~A" target)
                      result)))
 
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; #127: ASK command — subscriber FAQ / neural.sh query
+;;; ─────────────────────────────────────────────────────────────────────────────
+(defun handle-ask-command (list-id from-addr body-lines)
+  "Handle a subscriber 'ask <question>' command.
+   If the list has an :ai-ask option configured, pipe the question through
+   that command (typically a neural.sh invocation) and reply with its output.
+   Falls back to a helpful plain-text reply (list info + commands) when
+   :ai-ask is not configured or the command produces no output.
+   Opt-in per-list: mlisp-admin set-option <list-id> ai-ask <neural-cmd>"
+  (let* ((lst      (find-list list-id))
+         (ai-cmd   (when lst (getf lst :ai-ask)))
+         ;; Extract the question: strip leading 'ask ' from first body line
+         ;; or from Subject if body is empty
+         (question (let ((first (string-trim '(#\Space #\Tab #\Return #\Newline)
+                                              (or (first body-lines) ""))))
+                     (if (and (> (length first) 4)
+                              (string-equal "ask " (subseq first 0 4)))
+                         (subseq first 4)
+                         first))))
+    (if ai-cmd
+        ;; ── AI-assisted path ─────────────────────────────────────────────
+        (multiple-value-bind (answer exit-code)
+            (pipe-through-command ai-cmd question)
+          (let ((answer (string-trim '(#\Space #\Tab #\Newline #\Return)
+                                      (or answer ""))))
+            (if (and (= exit-code 0) (> (length answer) 0))
+                (reply-to-sender list-id from-addr
+                                 (format nil "Re: ask ~A" question)
+                                 answer)
+                ;; neural produced no output (e.g. unreachable endpoint)
+                ;; fall through to the info fallback below
+                (handle-ask-fallback list-id from-addr question))))
+        ;; ── Fallback: list info + command list ───────────────────────────
+        (handle-ask-fallback list-id from-addr question))))
+
+(defun handle-ask-fallback (list-id from-addr question)
+  "Reply with a helpful fallback when no AI backend is configured or available."
+  (let* ((lst  (find-list list-id))
+         (desc (when lst (getf lst :description))))
+    (reply-to-sender
+     list-id from-addr
+     (format nil "Re: ask ~A" question)
+     (format nil
+       "Your question: ~A~%~%~
+        ~A~%~%~
+        Available commands for this list:~%~
+          subscribe       -- join the list~%~
+          unsubscribe     -- leave the list~%~
+          info            -- list description and policies~%~
+          who             -- list current subscribers~%~
+          index           -- show archived messages~%~
+          get <N>         -- retrieve archived message N~%~
+          search <query>  -- search the message archive~%~
+          ask <question>  -- this command~%~%~
+        For further help, contact the list owner.~%"
+       question
+       (or desc (format nil "This is the ~A list." list-id))))))

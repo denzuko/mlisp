@@ -321,6 +321,9 @@
                  (:file-index
                   (handle-file-index-command list-id from-addr body-lines)
                   (return-from process-message 0))
+                 (:ask
+                  (handle-ask-command list-id from-addr body-lines)
+                  (return-from process-message 0))
                  (:diagnose
                   (handle-diagnose list-id from-addr)
                   (return-from process-message 0))
