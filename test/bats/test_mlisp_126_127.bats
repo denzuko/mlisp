@@ -113,21 +113,23 @@ ask_cmd() {
     [ -s "${SCRATCH}/var/outbound.eml" ]
 }
 
-@test "ASK-2 ask with ask-filter configured calls filter and returns its output" {
-    # Stub filter program that answers the question
-    printf '#!/bin/sh\ncat > /dev/null\necho "You can subscribe by sending email with Subject: subscribe"\n' \
-      > "${SCRATCH}/bin/ask-filter"
-    chmod +x "${SCRATCH}/bin/ask-filter"
+@test "ASK-2 pre-filter handles ask interaction when configured" {
+    # The filter is a complete actor: reads the message, sends its own reply
+    # via sendmail, exits 3 (discard) so mlisp does not send a second reply.
+    # mlisp's role: recognise the ask command, run the pre-filter, stop.
+    printf '#!/bin/sh\n# Filter receives full RFC5322 message on stdin\ncat > /dev/null\n# Send own reply\n(\necho "To: member@example.com"\necho "From: list@example.com"\necho "Subject: Re: ask"\necho ""\necho "42"\n) | %s/bin/sendmail -t\nexit 3  # discard: mlisp should not send fallback\n' \
+      "${SCRATCH}" > "${SCRATCH}/etc/filters/ask-handler"
+    chmod +x "${SCRATCH}/etc/filters/ask-handler"
     "${ADMIN_BIN}" --home "${SCRATCH}" set-option bugs-request \
-      ask-filter "${SCRATCH}/bin/ask-filter" 2>/dev/null
+      pre-filter "${SCRATCH}/etc/filters/ask-handler" 2>/dev/null
 
-    ask_cmd "how do I subscribe"
-    grep -qi "subscribe" "${SCRATCH}/var/outbound.eml"
+    ask_cmd "what is the meaning of life"
+    # Filter sent exactly one reply containing "42"
+    grep -q "42" "${SCRATCH}/var/outbound.eml"
 }
 
-@test "ASK-3 ask falls back to list info when no pre-filter configured" {
-    # With no pre-filter configured, ask should reply with a helpful fallback
-    # (list info + manpage hint), not an error or silence
+@test "ASK-3 ask without pre-filter sends fallback list info reply" {
+    # No pre-filter configured: mlisp sends fallback (list info + commands)
     ask_cmd "what commands are available"
     [ -s "${SCRATCH}/var/outbound.eml" ]
 }

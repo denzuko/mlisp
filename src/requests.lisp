@@ -364,42 +364,36 @@
                      result)))
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
-;;; #127: ASK command — subscriber FAQ / filter-based query
+;;; #127: ASK command — subscriber FAQ (filter-handled or fallback)
 ;;; ─────────────────────────────────────────────────────────────────────────────
 (defun handle-ask-command (list-id from-addr body-lines)
   "Handle a subscriber 'ask <question>' command.
-   If the list has an :ask-filter configured, pipes the question through
-   that filter program and replies with its stdout output. The filter
-   is any program that reads the question on stdin and writes an answer
-   to stdout: a neural.sh invocation, a lookup script, a man page
-   formatter, whatever the operator configures. This reuses the same
-   pipe-through-command mechanism as bugs-report --summarize.
-   Falls back to a plain-text reply (list info + command reference) when
-   no :ask-filter is configured or the filter produces no output.
-   Configure: mlisp-admin set-option <list-id> ask-filter <program>"
-  (let* ((lst      (find-list list-id))
-         (ask-filt (when lst (getf lst :ask-filter)))
-         (question (let ((first (string-trim '(#\Space #\Tab #\Return #\Newline)
-                                              (or (first body-lines) ""))))
-                     (if (and (> (length first) 4)
-                              (string-equal "ask " (subseq first 0 4)))
-                         (subseq first 4)
-                         first))))
-    (if ask-filt
-        ;; ── Filter-based path ────────────────────────────────────────────
-        ;; Reuse pipe-through-command: same mechanism as bugs-report --summarize.
-        ;; The question is passed on stdin; the filter writes the answer to stdout.
-        (multiple-value-bind (answer exit-code)
-            (pipe-through-command ask-filt question)
-          (let ((answer (string-trim '(#\Space #\Tab #\Newline #\Return)
-                                      (or answer ""))))
-            (if (and (= exit-code 0) (> (length answer) 0))
-                (reply-to-sender list-id from-addr
-                                 (format nil "Re: ask ~A" question)
-                                 answer)
-                (handle-ask-fallback list-id from-addr question))))
-        ;; ── Fallback: list info + command list ───────────────────────────
-        (handle-ask-fallback list-id from-addr question))))
+
+   The ask command is dispatched by mlisp's -request handler. The actual
+   response is produced by the list's pre-filter, which the list owner
+   configures independently:
+
+     mlisp-admin set-option <list-id> pre-filter /path/to/ask-handler
+
+   The filter receives the full RFC 5322 message on stdin, constructs
+   its own reply (To:, From:, Subject:, body), and sends it via sendmail.
+   The filter is responsible for the entire response -- mlisp does not
+   inspect or relay its output. Any program works: neural.sh wrapper,
+   a knowledge base lookup, a man page formatter, etc.
+
+   When no pre-filter is configured, mlisp replies with a plain-text
+   fallback: the list description and available commands. This ensures
+   subscribers always receive a response regardless of operator config.
+
+   The pre-filter runs before command dispatch in the delivery pipeline
+   (main.lisp step 3x). If the filter exits 3 (discard), mlisp stops
+   processing after the filter returns -- no fallback is sent. If the
+   filter exits 0, mlisp sends the fallback reply below (since the
+   filter already sent its own reply via sendmail, this is a no-op from
+   the subscriber's perspective only if the filter used exit 3)."
+  (handle-ask-fallback list-id from-addr
+                       (string-trim '(#\Space #\Tab #\Return #\Newline)
+                                     (or (first body-lines) ""))))
 
 (defun handle-ask-fallback (list-id from-addr question)
   "Reply with a helpful fallback when no AI backend is configured or available."
