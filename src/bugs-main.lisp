@@ -69,8 +69,8 @@
       (let ((code
              (cond
                ((string= mode "submit")
-                (mlisp:bugs-process-submit pkg-name headers body-lines)
-                0)
+                (let ((result (mlisp:bugs-process-submit pkg-name headers body-lines)))
+                  (if (numberp result) result 0)))
                ((string= mode "append")
                 (let ((bug-id (when bug-id-s (parse-bug-id bug-id-s))))
                   (unless bug-id
