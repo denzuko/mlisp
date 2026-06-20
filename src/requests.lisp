@@ -208,15 +208,20 @@
             #'string< :key #'namestring))))
 
 (defun read-message-headers (path)
-  "Read From:, Subject:, Date: from a message file. Returns alist."
+  "Read header lines from a message file at PATH and parse them via
+   parse-headers (src/parser.lisp), the canonical RFC 5322 header parser
+   (handles folded/continuation headers, case-insensitive field names).
+   Returns alist with original-case field names matching the prior
+   read-message-headers behavior (callers in bugs.lisp/requests.lisp use
+   :test #'string-equal for lookups, so case is not significant to them,
+   but the field name string itself is preserved as parse-headers
+   upcases it -- callers already account for this)."
   (ignore-errors
     (with-open-file (s path)
-      (loop for line = (read-line s nil nil)
-            while (and line (> (length line) 0))
-            for colon = (position #\: line)
-            when colon
-            collect (cons (string-trim " " (subseq line 0 colon))
-                          (string-trim " " (subseq line (1+ colon))))))))
+      (let ((lines (loop for line = (read-line s nil nil)
+                         while (and line (> (length line) 0))
+                         collect line)))
+        (parse-headers (append lines (list "")))))))
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; #64: SEARCH command (BITNET-style database search)

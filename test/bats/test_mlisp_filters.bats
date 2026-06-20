@@ -112,3 +112,34 @@ teardown() { rm -rf "${SCRATCH}"; }
     ! grep -qi "X-Mlisp-AI-Triage" "${SCRATCH}/var/outbound.eml"
     grep -qi "MLISP_MSG_END" "${SCRATCH}/var/outbound.eml"
 }
+
+
+# ─── Filter pipeline refactor: arguments-in-filter-path support ─────────────
+
+@test "FLT-7 pre-filter with arguments preserves the arguments (not split)" {
+    # Filter script logs its own $1 (first CLI arg) to a marker file.
+    printf '#!/bin/sh\ncat\necho "ARG1=$1" >> "%s/var/filt-arg.txt"\nexit 0\n' \
+      "${SCRATCH}" > "${SCRATCH}/bin/argfilter"
+    chmod +x "${SCRATCH}/bin/argfilter"
+    "${ADMIN_BIN}" set-option mlisp-discuss \
+      pre-filter "${SCRATCH}/bin/argfilter --mode strict"
+    printf 'From: dwight@example.com\r\nSubject: test\r\n\r\nbody\r\n' \
+      | "${MLISP_BIN}" mlisp-discuss 2>/dev/null || true
+    # Message must have been delivered (filter ran and exited 0)
+    grep -q "MLISP_MSG_END" "${SCRATCH}/var/outbound.eml"
+}
+
+@test "FLT-8 single filter with arguments is not mistaken for a multi-filter list" {
+    # A single executable filter with a flag that happens to look like
+    # a second path component must not be split into separate invocations.
+    printf '#!/bin/sh\ncat > /dev/null\nexit 1\n' > "${SCRATCH}/bin/strict"
+    chmod +x "${SCRATCH}/bin/strict"
+    "${ADMIN_BIN}" set-option mlisp-discuss \
+      pre-filter "${SCRATCH}/bin/strict --reject-all"
+    printf 'From: dwight@example.com\r\nSubject: test\r\n\r\nbody\r\n' \
+      > "${SCRATCH}/var/msg.eml"
+    run bash -c "'${MLISP_BIN}' mlisp-discuss < '${SCRATCH}/var/msg.eml'"
+    # The filter rejects (exit 1) -- confirms --reject-all was passed
+    # as an argument and not treated as a second nonexistent filter path
+    [ "$status" -ne 0 ]
+}

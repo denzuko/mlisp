@@ -114,14 +114,11 @@
            0)
           (t
            ;; 3x. Pre-filter hook (plugin pipeline)
-           (let* ((pre-filt (getf (find-list list-id) :pre-filter))
-                  (filters  (cond ((null pre-filt) nil)
-                                  ((listp pre-filt) pre-filt)
-                                  (t (list pre-filt)))))
+           (let ((pre-filt (getf (find-list list-id) :pre-filter)))
 
-             (when filters
+             (when pre-filt
                (multiple-value-bind (new-headers new-body exit-code)
-                   (invoke-filter-chain filters headers body-lines)
+                   (invoke-filter-chain pre-filt headers body-lines)
                  (case exit-code
                    (0 (setf headers new-headers body-lines new-body))
                    (1 (audit-append (list :event :filter-rejected :list list-id))
@@ -444,13 +441,10 @@
                    (t
                     (maybe-archive-to-maildir list-id headers body-lines)
                     ;; Post-filter hook (called once before distribution)
-                    (let* ((post-filt (getf (find-list list-id) :post-filter))
-                           (pfilters  (cond ((null post-filt) nil)
-                                            ((listp post-filt) post-filt)
-                                            (t (list post-filt)))))
-                      (when pfilters
+                    (let ((post-filt (getf (find-list list-id) :post-filter)))
+                      (when post-filt
                         (multiple-value-bind (ph pb _exit)
-                            (invoke-filter-chain pfilters headers body-lines)
+                            (invoke-filter-chain post-filt headers body-lines)
                           (declare (ignore _exit))
                           (setf headers ph body-lines pb))))
                     (distribute-message list-id from-addr headers body-lines)

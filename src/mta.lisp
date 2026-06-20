@@ -1,4 +1,11 @@
-;;;; src/mta.lisp — Audit log (GDPR Art.30), MTA delivery, admin command handlers
+;;;; src/mta.lisp — Audit log, sendmail delivery, RFC 2369 headers, subscriber lifecycle
+;;;;
+;;;; Audit log:   GDPR Art.30 records of processing activity (append-only sexp log)
+;;;; sendmail:    fork sendmail(8) for outbound delivery (VERP-aware)
+;;;; rfc2369:     List-* header generation per RFC 2369 and RFC 2919
+;;;; Lifecycle:   handle-welcome, handle-subscribe, handle-unsubscribe,
+;;;;              handle-help, handle-reject — the template-rendered
+;;;;              subscriber-facing messages
 
 (in-package #:mlisp)
 
