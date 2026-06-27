@@ -4,6 +4,36 @@ All notable changes to mlisp are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+---
+
+## [0.9.0] — 2026-06-27
+
+### Added
+
+- `src/matrix-id.lisp` — `defpackage mlisp/matrix-id` with `*matrix-labels*`
+  alist baked into the binary at compile time. Version resolved via `#.` from
+  `mlisp.asd` defsystem — single source of truth. Exports `matrix-label`
+  lookup function. Wired as first component in `mlisp.asd` src module.
+- `test/fiveam/test-mlisp-slsa.lisp` — 8 FiveAM specs covering: labels
+  defined and non-empty, 7 required keys present, DPS-constant value
+  assertions, version matches `.asd`, `probe-file` path specs for
+  `bin/mlisp` and `bin/mlisp.sha256` (NIL acceptable in unit context;
+  condition = malformed path = fail). Added to `mlisp-test.asd` runner.
+- `policy/slsa.rego` — SLSA provenance gate (3 deny rules: release without
+  provenance, push to main without workflow triggered, verifier non-zero exit).
+- `.github/workflows/slsa.yml` — SLSA Level 3 provenance pipeline: build
+  (all 5 binaries, `openssl dgst -sha256`, `net.matrix` strings verified),
+  provenance (slsa-github-generator generic L3, `mlisp.intoto.jsonl`),
+  verify (`slsa-verifier` + `policy/slsa.rego` OPA gate). `net.matrix`
+  CMDB env vars on all jobs.
+- `CLAUDE.md` — BDD workflow, semver standard, architecture rules,
+  `net.matrix` identity documentation, repository layout.
+- `SUPPORT.md` — community and commercial support contacts.
+
+---
+
 ## [0.6.1] - 2026-06-10
 
 ### Added

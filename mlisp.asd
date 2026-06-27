@@ -32,6 +32,7 @@
     :serial t
     :components
     ((:file "package")
+     (:file "matrix-id")   ; net.matrix identity — must load before all other src
      (:file "state")
      (:file "confirm")
      (:file "gpg")

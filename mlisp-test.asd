@@ -29,5 +29,6 @@
           (root (asdf:system-source-directory system)))
       (declare (special cl-user::*mlisp-test-no-exit*))
       (dolist (f '("test/fiveam/test-mlisp.lisp"
-                   "test/fiveam/test-mlisp-mime.lisp"))
+                   "test/fiveam/test-mlisp-mime.lisp"
+                   "test/fiveam/test-mlisp-slsa.lisp"))
         (load (merge-pathnames f root))))))

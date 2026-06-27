@@ -1,0 +1,156 @@
+name: SLSA Provenance
+
+on:
+  workflow_dispatch:
+  release:
+    types: [created]
+
+permissions:
+  id-token: write
+  contents: read
+  actions: read
+
+env:
+  NET_MATRIX_ORGANIZATION:  daplanet
+  NET_MATRIX_ORGUNIT:       dps
+  NET_MATRIX_OWNER:         FC13F74B@matrix.net
+  NET_MATRIX_CUSTOMER:      PVT-01
+  NET_MATRIX_COSTCENTER:    INT-01
+  NET_MATRIX_OID:           iso.org.dod.internet.42387
+  NET_MATRIX_DUNS:          iso.org.duns.039271257
+  NET_MATRIX_APPLICATION:   mlisp
+  NET_MATRIX_ROLE:          list-manager
+  NET_MATRIX_ENVIRONMENT:   production
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      hashes: ${{ steps.hash.outputs.hashes }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install groff + SBCL
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y groff sbcl
+
+      - name: Setup Common Lisp (Roswell + Qlot)
+        uses: 40ants/setup-lisp@v4
+        with:
+          asdf-system: mlisp
+        env:
+          LISP: sbcl-bin
+
+      - name: Build all binaries
+        run: |
+          sbcl --non-interactive --load build.lisp
+          sbcl --non-interactive --load build-admin.lisp
+          sbcl --non-interactive --load build-bugs.lisp
+          sbcl --non-interactive --load build-distrib.lisp
+          sbcl --non-interactive --load build-procmail-gen.lisp
+
+      - name: Verify net.matrix strings in binary
+        run: |
+          for b in bin/mlisp bin/mlisp-admin bin/mlisp-bugs \
+                   bin/mlisp-distrib bin/mlisp-procmail-gen; do
+            echo "=== $b ==="
+            strings "$b" | grep "^net\.matrix\." || \
+              (echo "FAIL: net.matrix strings missing from $b" && exit 1)
+          done
+
+      - name: Hash all binaries with openssl
+        id: hash
+        run: |
+          cd bin
+          for b in mlisp mlisp-admin mlisp-bugs mlisp-distrib mlisp-procmail-gen; do
+            openssl dgst -sha256 -hex "$b" | awk '{print $2}' > "$b.sha256"
+          done
+          cd ..
+          # Concatenate all hashes; base64 for provenance generator input
+          cat bin/*.sha256 > bin/all.sha256
+          echo "hashes=$(base64 -w0 bin/all.sha256)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mlisp-binaries
+          path: |
+            bin/mlisp
+            bin/mlisp-admin
+            bin/mlisp-bugs
+            bin/mlisp-distrib
+            bin/mlisp-procmail-gen
+            bin/*.sha256
+
+  provenance:
+    needs: [build]
+    permissions:
+      actions: read
+      id-token: write
+      contents: write
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
+    with:
+      base64-subjects:  "${{ needs.build.outputs.hashes }}"
+      upload-assets:    true
+      provenance-name:  "mlisp.intoto.jsonl"
+
+  verify:
+    needs: [build, provenance]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: mlisp-binaries
+          path: bin/
+
+      - name: Download provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "${{ github.ref_name }}" \
+            --pattern "mlisp.intoto.jsonl" \
+            --repo "${{ github.repository }}"
+
+      - name: Install slsa-verifier
+        run: |
+          curl -sSfL \
+            https://github.com/slsa-framework/slsa-verifier/releases/latest/download/slsa-verifier-linux-amd64 \
+            -o slsa-verifier
+          chmod +x slsa-verifier
+
+      - name: Verify provenance (primary binary)
+        id: verify
+        run: |
+          ./slsa-verifier verify-artifact \
+            bin/mlisp \
+            --provenance-path mlisp.intoto.jsonl \
+            --source-uri "github.com/${{ github.repository }}" \
+            --source-tag "${{ github.ref_name }}"
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Install OPA
+        run: |
+          curl -sSfL \
+            https://openpolicyagent.org/downloads/latest/opa_linux_amd64_static \
+            -o opa
+          chmod +x opa
+
+      - name: Rego SLSA gate
+        run: |
+          echo "{
+            \"slsa_verifier_exit_code\": ${{ steps.verify.outputs.exit_code }},
+            \"event_name\": \"${{ github.event_name }}\",
+            \"ref\": \"${{ github.ref }}\",
+            \"slsa_provenance_attached\": true,
+            \"provenance_workflow_triggered\": true
+          }" > slsa_input.json
+          ./opa eval \
+            -d policy/slsa.rego \
+            -i slsa_input.json \
+            --fail-defined 'data.mlisp.slsa.deny[_]' && \
+            echo "slsa gate: PASS"
