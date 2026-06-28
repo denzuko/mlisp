@@ -368,3 +368,57 @@
                      (format nil "Files: ~A" target)
                      result)))
 
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; #127: ASK command — subscriber FAQ (filter-handled or fallback)
+;;; ─────────────────────────────────────────────────────────────────────────────
+(defun handle-ask-command (list-id from-addr body-lines)
+  "Handle a subscriber 'ask <question>' command.
+
+   The ask command is dispatched by mlisp's -request handler. The actual
+   response is produced by the list's pre-filter, which the list owner
+   configures independently:
+
+     mlisp-admin set-option <list-id> pre-filter /path/to/ask-handler
+
+   The filter receives the full RFC 5322 message on stdin, constructs
+   its own reply (To:, From:, Subject:, body), and sends it via sendmail.
+   The filter is responsible for the entire response -- mlisp does not
+   inspect or relay its output. Any program works: neural.sh wrapper,
+   a knowledge base lookup, a man page formatter, etc.
+
+   When no pre-filter is configured, mlisp replies with a plain-text
+   fallback: the list description and available commands. This ensures
+   subscribers always receive a response regardless of operator config.
+
+   The pre-filter runs before command dispatch in the delivery pipeline
+   (main.lisp step 3x). If the filter exits 3 (discard), mlisp stops
+   processing after the filter returns -- no fallback is sent. If the
+   filter exits 0, mlisp sends the fallback reply below (since the
+   filter already sent its own reply via sendmail, this is a no-op from
+   the subscriber's perspective only if the filter used exit 3)."
+  (handle-ask-fallback list-id from-addr
+                       (string-trim '(#\Space #\Tab #\Return #\Newline)
+                                     (or (first body-lines) ""))))
+
+(defun handle-ask-fallback (list-id from-addr question)
+  "Reply with a helpful fallback when no AI backend is configured or available."
+  (let* ((lst  (find-list list-id))
+         (desc (when lst (getf lst :description))))
+    (reply-to-sender
+     list-id from-addr
+     (format nil "Re: ask ~A" question)
+     (format nil
+       "Your question: ~A~%~%~
+        ~A~%~%~
+        Available commands for this list:~%~
+          subscribe       -- join the list~%~
+          unsubscribe     -- leave the list~%~
+          info            -- list description and policies~%~
+          who             -- list current subscribers~%~
+          index           -- show archived messages~%~
+          get <N>         -- retrieve archived message N~%~
+          search <query>  -- search the message archive~%~
+          ask <question>  -- this command~%~%~
+        For further help, contact the list owner.~%"
+       question
+       (or desc (format nil "This is the ~A list." list-id))))))

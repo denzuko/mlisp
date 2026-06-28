@@ -111,6 +111,8 @@
    #:bugs-generate-report
    #:bugs-process-submit
    #:bugs-process-append
+   #:bugs-set-option
+   #:bugs-invoke-filter
    #:bugs-process-close
    #:bugs-process-control
    ;; procmail-gen DSL
@@ -134,6 +136,7 @@
    #:handle-index-command
    #:handle-get-archive-command
    #:handle-file-index-command
+   #:handle-ask-command
    #:cl-tokenize
    #:extract-list-arg
    ;; Rate limiting

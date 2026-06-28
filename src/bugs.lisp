@@ -72,7 +72,39 @@
     (save-state)
     entry))
 
-;;; ─── Maildir (reuses maildir-write from maildir.lisp + patterns from requests.lisp)
+;;; ─── bugs-set-option ─────────────────────────────────────────────────────
+
+(defun bugs-set-option (pkg key value)
+  "Set an option KEY (keyword) to VALUE on the bugs package PKG.
+   Supported keys: :pre-filter :post-filter :ai-ask (and any future options).
+   pre-filter / post-filter follow the same contract as mlisp list filters:
+     exit 0  = pass (stdout becomes the new message)
+     exit 1  = reject (submission aborted)
+     exit 2  = hold  (reserved, treated as reject for bugs submissions)
+     exit 3  = discard silently"
+  (load-state)
+  (let ((entry (find-bugs-package pkg)))
+    (unless entry
+      (error "No bugs package named ~A" pkg))
+    (setf (getf entry key) value)
+    ;; Update in *state*
+    (let ((pkgs (getf *state* :bugs-packages)))
+      (setf (getf *state* :bugs-packages)
+            (mapcar (lambda (e)
+                      (if (string-equal (getf e :package) pkg) entry e))
+                    pkgs)))
+    (save-state)
+    value))
+
+;;; ─── bugs filter invocation ──────────────────────────────────────────────
+
+(defun bugs-invoke-filter (filter-programs headers body-lines)
+  "Run FILTER-PROGRAMS (space-separated path string or nil) against the
+   assembled message. Returns (values new-headers new-body exit-code).
+   Same contract as invoke-filter-chain in src/filters.lisp."
+  (if (and filter-programs (> (length (string-trim '(#\Space #\Tab) filter-programs)) 0))
+      (invoke-filter-chain filter-programs headers body-lines)
+      (values headers body-lines 0)))
 
 (defun bugs-list-id (pkg)
   "Maildir list-id for PKG bug archive: PKG-bugs convention.
@@ -266,27 +298,48 @@
 (defun bugs-process-submit (pkg headers body-lines)
   (load-state)
   (let* ((entry    (find-bugs-package pkg))
-         (bug-id   (bugs-next-id pkg))
-         (subj     (or (cdr (assoc "SUBJECT" headers :test #'string=)) "(no subject)"))
-         (from     (or (cdr (assoc "FROM"    headers :test #'string=)) ""))
-         (severity (or (loop for line in body-lines
-                             for colon = (position #\: line)
-                             when (and colon (string-equal "Severity"
-                                       (string-trim " " (subseq line 0 colon))))
-                             return (string-trim " " (subseq line (1+ colon))))
-                       (getf entry :default-severity) "normal"))
-         (new-body (inject-pseudo-headers headers body-lines bug-id pkg severity))
-         (new-hdrs (mapcar (lambda (h)
-                             (if (string-equal (car h) "SUBJECT")
-                                 (cons "Subject" (format nil "Bug#~A: ~A" bug-id subj))
-                                 h))
-                           headers))
-         (raw-msg  (assemble-message new-hdrs new-body)))
-    (bugs-archive pkg raw-msg)
-    (bugs-distribute pkg new-hdrs new-body :extra-recipients (list from))
-    (audit-append (list :event :bug-submitted :package pkg :id bug-id
-                        :from from :severity severity))
-    bug-id))
+         (pre-filt (getf entry :pre-filter))
+         (post-filt (getf entry :post-filter)))
+    ;; #126: pre-filter hook -- same contract as mlisp list pre-filters
+    (when pre-filt
+      (multiple-value-bind (new-hdrs new-body exit-code)
+          (bugs-invoke-filter pre-filt headers body-lines)
+        (case exit-code
+          (0 (setf headers new-hdrs body-lines new-body))
+          (t
+           (format *error-output*
+                   "mlisp-bugs: pre-filter rejected submission (exit ~A)~%" exit-code)
+           (return-from bugs-process-submit 1)))))
+    (let* ((bug-id   (bugs-next-id pkg))
+           (subj     (or (cdr (assoc "SUBJECT" headers :test #'string=)) "(no subject)"))
+           (from     (or (cdr (assoc "FROM"    headers :test #'string=)) ""))
+           (severity (or (loop for line in body-lines
+                               for colon = (position #\: line)
+                               when (and colon (string-equal "Severity"
+                                         (string-trim " " (subseq line 0 colon))))
+                               return (string-trim " " (subseq line (1+ colon))))
+                         (getf entry :default-severity) "normal"))
+           (new-body (inject-pseudo-headers headers body-lines bug-id pkg severity))
+           (new-hdrs (mapcar (lambda (h)
+                               (if (string-equal (car h) "SUBJECT")
+                                   (cons "Subject" (format nil "Bug#~A: ~A" bug-id subj))
+                                   h))
+                             headers))
+           (raw-msg  (assemble-message new-hdrs new-body)))
+      (bugs-archive pkg raw-msg)
+      ;; #126: post-filter hook -- invoked after archival, before distribution
+      (when post-filt
+        (multiple-value-bind (pf-hdrs pf-body _exit)
+            (bugs-invoke-filter post-filt new-hdrs new-body)
+          (declare (ignore _exit))
+          (setf new-hdrs pf-hdrs new-body pf-body)))
+      (bugs-distribute pkg new-hdrs new-body :extra-recipients (list from))
+      (audit-append (list :event :bug-submitted :package pkg :id bug-id
+                          :from from :severity severity))
+      ;; Return the bug-id for callers that need it, but bugs-main.lisp
+      ;; uses (if (numberp result) result 0) as an exit code -- return 0
+      ;; explicitly so the binary exits 0 on success regardless of bug-id.
+      0)))
 
 (defun bugs-process-append (pkg bug-id headers body-lines)
   (load-state)
