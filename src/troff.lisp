@@ -69,11 +69,54 @@
     (with-open-file (s path :direction :input :if-does-not-exist :error)
       (read s))))
 
+(defun substitute-tokens (str bindings)
+  "Replace {{key}} placeholders in STR with values from BINDINGS alist.
+   BINDINGS is a list of (\"key\" . \"value\") string pairs.
+   Unknown tokens are left in place."
+  (let ((result str))
+    (dolist (binding bindings result)
+      (let* ((key     (car binding))
+             (value   (cdr binding))
+             (token   (format nil "{{~A}}" key)))
+        (loop for pos = (search token result)
+              while pos
+              do (setf result (concatenate 'string
+                                            (subseq result 0 pos)
+                                            value
+                                            (subseq result (+ pos (length token))))))))))
+
+(defun substitute-sexp-tokens (form bindings)
+  "Recursively substitute {{key}} tokens in string leaves of the DSL FORM."
+  (cond
+    ((null form) nil)
+    ((stringp form) (substitute-tokens form bindings))
+    ((listp form)   (mapcar (lambda (x) (substitute-sexp-tokens x bindings)) form))
+    (t form)))
+
 (defun render-template (list-id template-name &key extra-bindings)
-  "Load, optionally substitute EXTRA-BINDINGS, compile and render template."
-  (declare (ignore extra-bindings))             ; future: token substitution
-  (let* ((form   (load-template list-id template-name))
-         (troff  (sexp->troff form)))
+  "Load templates/<list-id>.<template-name>.sexp, substitute tokens,
+   compile to troff -ms, and render to plain text via groff.
+
+   EXTRA-BINDINGS is an alist of (\"key\" . \"value\") pairs for
+   {{key}} placeholder substitution in template string literals.
+
+   Default bindings always available (from list state):
+     {{list-address}}  — the list drop address
+     {{list-name}}     — the list ID
+     {{list-id}}       — synonym for {{list-name}}
+
+   Operators add custom bindings via extra-bindings in call sites,
+   or override defaults by including them in extra-bindings."
+  (let* ((lst      (find-list list-id))
+         (drop     (when lst (getf lst :drop-address)))
+         (defaults (list (cons "list-address" (or drop list-id))
+                         (cons "list-name"    list-id)
+                         (cons "list-id"      list-id)))
+         ;; extra-bindings override defaults
+         (bindings (append extra-bindings defaults))
+         (form     (load-template list-id template-name))
+         (form     (substitute-sexp-tokens form bindings))
+         (troff    (sexp->troff form)))
     (render-troff-to-text troff)))
 
 ;;; ─────────────────────────────────────────────────────────────────────────────

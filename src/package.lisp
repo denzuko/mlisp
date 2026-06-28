@@ -33,6 +33,8 @@
    #:sexp->troff
    #:render-troff-to-text
    #:render-template
+   #:substitute-tokens
+   #:substitute-sexp-tokens
    ;; MIME inbound processor
    #:strip-html
    #:decode-html-entities
@@ -117,6 +119,8 @@
    #:procmailrc-has-marker-p
    #:read-recipes-from-file
    #:write-procmail-recipes
+   #:list-recipes
+   #:bugs-recipes
    #:parse-pseudo-headers
    #:parse-control-body
    #:inject-pseudo-headers

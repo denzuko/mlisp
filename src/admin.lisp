@@ -375,68 +375,13 @@
 ;;; Subcommand: install-procmail
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
-(defun procmail-recipe (list-id drop-address mlisp-bin home-dir)
-  "Return a procmail recipe string for LIST-ID.
-   Includes FROM_DAEMON guard, Precedence guard, idempotency marker.
-   For :request subgroup: command-only recipe (no -request sibling).
-   For other subgroups: list recipe + -request sibling recipe."
-  (let* ((sg       (mlisp:list-subgroup list-id))
-         (is-req   (eq sg :request))
-         (at-pos   (position #\@ drop-address))
-         (local    (if at-pos (subseq drop-address 0 at-pos) drop-address))
-         (domain   (if at-pos (subseq drop-address at-pos) ""))
-         (req-drop (concatenate 'string local "-request" domain))
-         ;; For --mode request: use the -request sibling address for matching
-         ;; For :request lists: use --mode request directly
-         (mode-arg (if is-req "--mode request " "")))
-    (if is-req
-        ;; :request subgroup: single recipe, command-only
-        (format nil
-"# mlisp: ~A
-:0
-* !^FROM_DAEMON
-* !^FROM_MAILER
-* !^Precedence: (bulk|junk|list)
-* ^^TO_~A
-| ~A --home ~A --mode request ~A
-"
-                list-id drop-address mlisp-bin home-dir list-id)
-        ;; Other subgroups: list recipe + -request sibling
-        (format nil
-"# mlisp: ~A
-:0
-* !^FROM_DAEMON
-* !^FROM_MAILER
-* !^Precedence: (bulk|junk|list)
-* ^^TO_~A
-| ~A --home ~A ~A~A
-
-# mlisp: ~A-request
-:0
-* ^^TO_~A
-| ~A --home ~A --mode request ~A
-"
-                list-id drop-address mlisp-bin home-dir mode-arg list-id
-                list-id req-drop mlisp-bin home-dir list-id))))
-
-(defun procmailrc-has-list-p (path list-id)
-  "Return T if PATH already contains a mlisp recipe for LIST-ID."
-  (when (probe-file path)
-    (with-open-file (s path :direction :input)
-      (let ((marker (format nil "# mlisp: ~A" list-id)))
-        (loop for line = (read-line s nil nil)
-              while line
-              when (string= line marker)
-              return t)))))
-
 (defun cmd-install-procmail (args)
-  "Append procmail recipes for configured lists to ~~/.procmailrc.
+  "Append procmail recipes for configured lists to ~/.procmailrc.
    Args: [--dry-run] [--list <id>] [--help]"
   (let ((dry-run nil)
         (filter-list nil)
         (tail args))
 
-    ;; Parse subcommand flags
     (loop while tail do
       (let ((a (car tail)))
         (cond
@@ -445,7 +390,7 @@
 "Usage: mlisp-admin install-procmail [--list <id>] [--dry-run]
 
   --list <id>    install recipe for one list only
-  --dry-run      print what would be written; do not modify ~~/.procmailrc
+  --dry-run      print what would be written; do not modify ~/.procmailrc
   --help         show this help
 ")
            (return-from cmd-install-procmail 0))
@@ -463,55 +408,32 @@
 
     (mlisp:load-state)
 
-    ;; Validate --list target if given
     (when (and filter-list (null (mlisp:find-list filter-list)))
       (format *error-output* "mlisp-admin: unknown list ~A~%" filter-list)
       (return-from cmd-install-procmail 1))
 
-    ;; Determine paths
     (let* ((home-dir   (mlisp:mlisp-home))
-           (mlisp-bin  (or (uiop:getenv "MLISP_BIN")
-                           (namestring
-                            (truename sb-ext:*runtime-pathname*))
-                           "/usr/local/bin/mlisp"))
-           ;; Replace mlisp-admin path with mlisp path
-           (mlisp-bin  (let ((b (pathname mlisp-bin)))
-                         (namestring
-                          (make-pathname
-                           :directory (pathname-directory b)
-                           :name "mlisp"
-                           :type (pathname-type b)))))
+           (mlisp-bin  (let* ((b (pathname (or (uiop:getenv "MLISP_BIN")
+                                               (namestring sb-ext:*runtime-pathname*)
+                                               "/usr/local/bin/mlisp"))))
+                         (namestring (make-pathname :directory (pathname-directory b)
+                                                    :name "mlisp"
+                                                    :type (pathname-type b)))))
            (procmailrc (merge-pathnames ".procmailrc"
                                         (uiop:ensure-directory-pathname
                                          (sb-ext:posix-getenv "HOME"))))
            (lists      (if filter-list
                            (list (mlisp:find-list filter-list))
-                           (getf mlisp:*state* :lists))))
-
+                           (getf mlisp:*state* :lists)))
+           ;; Build all recipes via DSL
+           (all-recipes (loop for lst in lists
+                              for id   = (getf lst :id)
+                              for drop = (getf lst :drop-address)
+                              append (mlisp:list-recipes id drop mlisp-bin
+                                                         home-dir))))
       (if dry-run
-          (progn
-            (format t "# Would append to ~A:~%~%" procmailrc)
-            (dolist (lst lists)
-              (let* ((id   (getf lst :id))
-                     (drop (getf lst :drop-address)))
-                (if (procmailrc-has-list-p procmailrc id)
-                    (format t "# SKIP (already present): ~A~%~%" id)
-                    (format t "~A" (procmail-recipe id drop mlisp-bin
-                                                    home-dir))))))
-          (progn
-            (dolist (lst lists)
-              (let* ((id   (getf lst :id))
-                     (drop (getf lst :drop-address)))
-                (if (procmailrc-has-list-p procmailrc id)
-                    (format t "Skipped ~A (already in ~A)~%" id procmailrc)
-                    (progn
-                      (with-open-file (s procmailrc
-                                         :direction :output
-                                         :if-exists :append
-                                         :if-does-not-exist :create)
-                        (write-string
-                         (procmail-recipe id drop mlisp-bin home-dir) s))
-                      (format t "Added ~A -> ~A~%" id procmailrc))))))))
+          (format t "# Would append to ~A:~%~%" procmailrc))
+      (mlisp:write-procmail-recipes all-recipes procmailrc :dry-run dry-run))
     0))
 
 
@@ -1434,7 +1356,7 @@ Config resolution order:
 
 (define-admin-cmd+ install-bugs-procmail (pkg) (("--dry-run" :boolean)) "<pkg>"
   (let* ((home     (mlisp:mlisp-home))
-         (bugs-bin (merge-pathnames "bin/mlisp-bugs" home)))
+         (bugs-bin (namestring (merge-pathnames "bin/mlisp-bugs" home))))
     (mlisp:load-state)
     (let* ((pkg-cfg (mlisp:find-bugs-package pkg))
            (submit  (or (getf pkg-cfg :submit-address)
@@ -1442,7 +1364,6 @@ Config resolution order:
            ;; Derive control address: strip -submit suffix, add -control
            (ctrl    (let* ((parts  (mlisp::split-string submit #\@))
                            (prefix (first parts))
-                           ;; Remove trailing -submit if present
                            (base   (if (and (>= (length prefix) 7)
                                            (string= "-submit"
                                                     (subseq prefix (- (length prefix) 7))))
@@ -1451,36 +1372,10 @@ Config resolution order:
                       (format nil "~A-control@~A"
                               base
                               (or (second parts) "example.com"))))
-           (recipes
-            (format nil
-                    "# mlisp-bugs: ~A~%~
-                     :0~%~
-                     * ^TO_~A~%~
-                     | ~A --home ~A --mode submit ~A~%~%~
-                     # mlisp-bugs: ~A (replies)~%~
-                     :0~%~
-                     * ^TO_~A-[0-9]+-done@~%~
-                     | ~A --home ~A --mode close ~A~%~%~
-                     :0~%~
-                     * ^TO_~A-[0-9]+@~%~
-                     | ~A --home ~A --mode append ~A~%~%~
-                     # mlisp-bugs: ~A (control)~%~
-                     :0~%~
-                     * ^TO_~A~%~
-                     | ~A --home ~A --mode control ~A~%~%"
-                    pkg submit bugs-bin home pkg
-                    pkg submit bugs-bin home pkg
-                    submit bugs-bin home pkg
-                    pkg ctrl bugs-bin home pkg)))
-      (if dry-run
-          (write-string recipes)
-          (let ((procmailrc (merge-pathnames ".procmailrc" (user-homedir-pathname))))
-            (with-open-file (f procmailrc :direction :output
-                                          :if-exists :append
-                                          :if-does-not-exist :create)
-              (write-string recipes f))
-            (format t "Appended ~A bug recipes to ~A~%" pkg procmailrc)))
-      0)))
+           (recipes (mlisp:bugs-recipes pkg submit ctrl bugs-bin home))
+           (procmailrc (merge-pathnames ".procmailrc" (user-homedir-pathname))))
+      (mlisp:write-procmail-recipes recipes procmailrc :dry-run dry-run))
+    0))
 
 ;;; Command dispatch table -- replaces 47-line cond chain
 (defparameter *admin-commands*
