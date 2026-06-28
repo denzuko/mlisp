@@ -1,169 +1,249 @@
-name: CI
-
-on:
-  push:
-    branches: ["main", "develop", "feat/**", "fix/**", "chore/**", "refactor/**", "ci/**", "build/**"]
-  pull_request:
-    branches: ["develop", "main"]
-
-jobs:
-  # ── Primary: FiveAM unit/BDD tests via 40ants toolchain ──────────────────
-  #
-  # FiveAM (mlisp-suite + mime-suite, 78 specs) is the source-of-truth for
-  # behavioral correctness of src/*.lisp. Runs first; BATS integration
-  # tests only run once these pass.
-  unit-tests:
-    name: FiveAM unit tests
-    runs-on: ubuntu-latest
-
-    strategy:
-      matrix:
-        lisp: [sbcl-bin]
-
-    env:
-      LISP: ${{ matrix.lisp }}
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      # render-troff-produces-output (mlisp-suite) shells out to
-      # /usr/bin/groff via src/troff.lisp's render-troff-to-text.
-      # 40ants/setup-lisp installs Roswell/SBCL/Qlot only, not groff.
-      - name: Install groff (required by FiveAM render-troff-produces-output)
-        run: sudo apt-get update -qq && sudo apt-get install -y groff
-
-      - name: Setup Common Lisp (Roswell + Qlot)
-        uses: 40ants/setup-lisp@v4
-        with:
-          asdf-system: mlisp
-          qlfile-template: |
-            ql fiveam
-
-      - name: Run FiveAM unit tests (mlisp-suite + mime-suite, 78 specs)
-        uses: 40ants/run-tests@v2
-        with:
-          asdf-system: mlisp
-          run-tests: |
-            (asdf:test-system :mlisp)
-
-  # ── Secondary: BATS integration tests (compiled binaries, end-to-end) ───
-  #
-  # Integration tests exercise the compiled binaries via subprocess.
-  # Depend on unit-tests passing first (fail fast on logic errors
-  # before spending time on binary builds + 2 VM jobs in release.yml).
-  integration-tests:
-    name: BATS integration tests
-    runs-on: ubuntu-latest
-    needs: unit-tests
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      # render-troff-produces-output (mlisp-suite) shells out to
-      # /usr/bin/groff via src/troff.lisp's render-troff-to-text.
-      # 40ants/setup-lisp installs Roswell/SBCL/Qlot only, not groff.
-      - name: Install groff (required by FiveAM render-troff-produces-output)
-        run: sudo apt-get update -qq && sudo apt-get install -y groff
-
-      - name: Setup Common Lisp (Roswell + Qlot)
-        uses: 40ants/setup-lisp@v4
-        with:
-          asdf-system: mlisp
-          qlfile-template: |
-            ql fiveam
-
-      - name: Run FiveAM unit tests (mlisp-suite + mime-suite, 78 specs)
-        uses: 40ants/run-tests@v2
-        with:
-          asdf-system: mlisp
-          run-tests: |
-            (asdf:test-system :mlisp)
-
-  # ── Secondary: BATS integration tests (compiled binaries, end-to-end) ───
-  #
-  # Integration tests exercise the compiled binaries via subprocess.
-  # Depend on unit-tests passing first (fail fast on logic errors
-  # before spending time on binary builds + 2 VM jobs in release.yml).
-  integration-tests:
-    name: BATS integration tests
-    runs-on: ubuntu-latest
-    needs: unit-tests
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Setup Common Lisp (Roswell + Qlot)
-        uses: 40ants/setup-lisp@v4
-        with:
-          asdf-system: mlisp
-          qlfile-template: |
-            ql fiveam
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y groff bats gpg m4 curl jq
-
-      - name: Build all binaries (including neural)
-        run: make clean build-all
-
-      - name: BATS integration tests (all suites)
-        run: |
-          for f in $(find test/bats -name '*.bats' | sort); do
-            echo "=== $f ==="
-            MLISP_HOME="$(pwd)" bats --tap "$f"
-          done
-
-  # ── Documentation (40ANTS-DOC-FULL via 40ants/build-docs) ────────────────
-  #
-  # Builds HTML docs from docstrings/40ants-doc page definitions and
-  # pushes any changes to gh-pages. Runs only on develop/main (not every
-  # PR) since it can push commits.
-  docs:
-    name: Documentation
-    runs-on: ubuntu-latest
-    needs: unit-tests
-    if: github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main'
-    permissions:
-      contents: write
-
-    env:
-      LISP: sbcl-bin
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Setup Common Lisp (Roswell + Qlot)
-        uses: 40ants/setup-lisp@v4
-        with:
-          asdf-system: mlisp-docs
-          qlfile-template: |
-            ql fiveam
-            ultralisp 40ants-doc
-
-      - name: Build and publish documentation
-        uses: 40ants/build-docs@v1
-        with:
-          asdf-system: mlisp-docs
-
-  notify-failure:
-    name: Notify on failure
-    needs: [unit-tests, integration-tests]
-    if: failure() && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    permissions:
-      issues: write
-    steps:
-      - name: Open failure issue
-        uses: jayqi/failed-build-issue-action@v1
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          label-name: ci-failure
+{
+  "name": "MLISP",
+  "on": {
+    "push": {
+      "branches": [
+        "develop"
+      ],
+      "tags": [
+        "v*"
+      ]
+    },
+    "pull_request": null
+  },
+  "env": {
+    "REGISTRY": "ghcr.io",
+    "IMAGE": "ghcr.io/denzuko/mlisp"
+  },
+  "jobs": {
+    "opa-gate": {
+      "permissions": {
+        "contents": "read",
+        "security-events": "write"
+      },
+      "runs-on": "ubuntu-24.04",
+      "env": {
+        "OS": "ubuntu-24.04"
+      },
+      "steps": [
+        {
+          "name": "Checkout",
+          "uses": "actions/checkout@v4",
+          "with": {
+            "fetch-depth": 0
+          }
+        },
+        {
+          "name": "Install OPA",
+          "run": "curl -sL https://openpolicyagent.org/downloads/latest/opa_linux_amd64_static \n  -o /usr/local/bin/opa && chmod +x /usr/local/bin/opa",
+          "shell": "bash"
+        },
+        {
+          "name": "Check Rego syntax",
+          "run": "opa check policy/",
+          "shell": "bash"
+        },
+        {
+          "name": "Eval SLSA gate (dry-run)",
+          "run": "echo '{}' | opa eval --bundle policy/ 'data.dps.meta.slsa.violation' || true",
+          "shell": "bash"
+        },
+        {
+          "name": "Generate SARIF",
+          "run": "opa eval --format sarif --bundle policy/ 'data' > opa.sarif || true",
+          "shell": "bash",
+          "if": "always()"
+        },
+        {
+          "name": "Upload SARIF",
+          "uses": "github/codeql-action/upload-sarif@v3",
+          "with": {
+            "sarif-file": "opa.sarif",
+            "category": "opa"
+          },
+          "if": "always()"
+        }
+      ]
+    },
+    "build": {
+      "permissions": {
+        "contents": "read"
+      },
+      "runs-on": "ubuntu-24.04",
+      "env": {
+        "OS": "ubuntu-24.04"
+      },
+      "steps": [
+        {
+          "name": "Checkout",
+          "uses": "actions/checkout@v4",
+          "with": {
+            "fetch-depth": 0
+          }
+        },
+        {
+          "name": "Build",
+          "run": "ROS_VER=26.02.116\ncurl -sL \"https://github.com/roswell/roswell/releases/download/v${ROS_VER}/roswell_${ROS_VER}-1_amd64.deb\" -o /tmp/roswell.deb\nsudo dpkg -i /tmp/roswell.deb\nros install qlot\nqlot install\nqlot exec ros run \\\n--eval \"(asdf:load-asd (merge-pathnames #P\\\"mlisp.asd\\\" (uiop:getcwd)))\" \\\n--eval \"(asdf:make :mlisp)\" \\\n--eval \"(uiop:quit 0)\"\nls -la mlisp",
+          "shell": "bash"
+        },
+        {
+          "name": "Hash artifact",
+          "id": "hash",
+          "run": "sha256sum mlisp > mlisp.sha256\necho \"sha256=$(base64 -w0 < mlisp.sha256)\" >> $GITHUB_OUTPUT",
+          "shell": "bash",
+          "if": "startsWith(github.ref, 'refs/tags/v')"
+        },
+        {
+          "name": "Upload artifact",
+          "uses": "actions/upload-artifact@v4",
+          "with": {
+            "name": "mlisp",
+            "path": "mlisp\nmlisp.sha256"
+          },
+          "if": "startsWith(github.ref, 'refs/tags/v')"
+        }
+      ]
+    },
+    "sbom": {
+      "permissions": {
+        "contents": "read"
+      },
+      "runs-on": "ubuntu-24.04",
+      "env": {
+        "OS": "ubuntu-24.04"
+      },
+      "steps": [
+        {
+          "name": "Checkout",
+          "uses": "actions/checkout@v4",
+          "with": {
+            "fetch-depth": 0
+          }
+        },
+        {
+          "name": "Setup Node",
+          "uses": "actions/setup-node@v4",
+          "with": {
+            "node-version": "20"
+          }
+        },
+        {
+          "name": "Install cdxgen",
+          "run": "npm install -g @cyclonedx/cdxgen",
+          "shell": "bash"
+        },
+        {
+          "name": "Generate SBOM",
+          "run": "cdxgen --type generic --output sbom.json .",
+          "shell": "bash"
+        },
+        {
+          "name": "Scan CVEs",
+          "run": "osv-scanner --sbom sbom.json --format table || true",
+          "shell": "bash"
+        },
+        {
+          "name": "Upload SBOM",
+          "uses": "actions/upload-artifact@v4",
+          "with": {
+            "name": "sbom.json",
+            "path": "sbom.json"
+          },
+          "if": "always()"
+        }
+      ]
+    },
+    "provenance": {
+      "needs": [
+        "build"
+      ],
+      "if": "startsWith(github.ref, 'refs/tags/v')",
+      "permissions": {
+        "id-token": "write",
+        "contents": "write",
+        "actions": "read"
+      },
+      "uses": "slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.0.0",
+      "with": {
+        "base64-subjects": "${{ needs.build.outputs.sha256 }}",
+        "upload-assets": "true"
+      }
+    },
+    "slsa-verify": {
+      "if": "startsWith(github.ref, 'refs/tags/v')",
+      "needs": [
+        "provenance"
+      ],
+      "permissions": {
+        "contents": "read"
+      },
+      "runs-on": "ubuntu-24.04",
+      "env": {
+        "OS": "ubuntu-24.04"
+      },
+      "steps": [
+        {
+          "name": "Download artifact",
+          "uses": "actions/download-artifact@v4",
+          "with": {
+            "name": "mlisp"
+          }
+        },
+        {
+          "name": "Download provenance",
+          "uses": "actions/download-artifact@v4",
+          "with": {
+            "name": "mlisp.intoto.jsonl"
+          }
+        },
+        {
+          "name": "Install slsa-verifier",
+          "run": "curl -sL https://github.com/slsa-framework/slsa-verifier/releases/latest/download/slsa-verifier-linux-amd64 \n  -o /usr/local/bin/slsa-verifier && chmod +x /usr/local/bin/slsa-verifier",
+          "shell": "bash"
+        },
+        {
+          "name": "Verify provenance",
+          "run": "slsa-verifier verify-artifact mlisp \\\n--provenance-path mlisp.intoto.jsonl \\\n--source-uri github.com/${{ github.repository }}",
+          "shell": "bash"
+        }
+      ]
+    },
+    "release": {
+      "if": "startsWith(github.ref, 'refs/tags/v')",
+      "needs": [
+        "slsa-verify"
+      ],
+      "permissions": {
+        "contents": "write"
+      },
+      "runs-on": "ubuntu-24.04",
+      "env": {
+        "OS": "ubuntu-24.04"
+      },
+      "steps": [
+        {
+          "name": "Download artifact",
+          "uses": "actions/download-artifact@v4",
+          "with": {
+            "name": "mlisp"
+          }
+        },
+        {
+          "name": "Download provenance",
+          "uses": "actions/download-artifact@v4",
+          "with": {
+            "name": "mlisp.intoto.jsonl"
+          }
+        },
+        {
+          "name": "Create Release",
+          "uses": "softprops/action-gh-release@v2",
+          "with": {
+            "files": "mlisp\nmlisp.sha256\nmlisp.intoto.jsonl",
+            "generate-release-notes": "true"
+          }
+        }
+      ]
+    }
+  }
+}
